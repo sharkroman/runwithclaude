@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trail Run Dashboard</title>
+<style>
+  :root{
+    --bg:#0b0e13; --panel:#12161d; --panel2:#161b24; --line:#1e2632;
+    --txt:#e6edf3; --dim:#8b98a9; --faint:#5b6773;
+    --green:#2ecc71; --amber:#f1c40f; --red:#ff5c5c; --blue:#58a6ff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#05070a;color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       display:flex;justify-content:center}
+  .app{width:100%;max-width:430px;background:var(--bg);min-height:100vh;padding:14px 14px 28px}
+  .mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  header{padding:6px 2px 12px}
+  h1{font-size:20px;font-weight:700;letter-spacing:.2px}
+  h1 .quote{color:var(--dim);font-weight:500}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{font-size:11px;color:var(--dim);background:var(--panel);border:1px solid var(--line);
+        border-radius:999px;padding:3px 9px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-top:12px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:1.2px;color:var(--faint);margin-bottom:10px}
+  svg{display:block;width:100%;height:auto}
+  .ann{display:flex;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+       padding:10px 12px;margin-top:8px;transition:border-color .3s}
+  .ann.flash{border-color:var(--txt)}
+  .ann .n{flex:0 0 24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+          font-size:12px;font-weight:800;color:#0b0e13;margin-top:2px}
+  .ann .t{font-size:13px;font-weight:700}
+  .ann .m{font-size:11px;color:var(--dim);margin-top:1px}
+  .ann .d{font-size:12px;color:#c3ccd8;line-height:1.45;margin-top:5px}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 6px;text-align:center}
+  .stat .v{font-size:15px;font-weight:700}
+  .stat .k{font-size:9.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.6px;margin-top:2px}
+  .zrow{display:flex;align-items:center;gap:8px;margin-top:6px}
+  .zrow .zl{width:26px;font-size:11px;color:var(--dim)}
+  .zrow .zb{flex:1;height:14px;background:var(--panel2);border-radius:4px;overflow:hidden}
+  .zrow .zf{height:100%;border-radius:4px}
+  .zrow .zp{width:38px;text-align:right;font-size:11px;color:var(--dim)}
+  footer{margin-top:16px;font-size:10.5px;color:var(--faint);line-height:1.6;padding:0 2px}
+  #status{padding:40px 12px;text-align:center;color:var(--dim);font-size:13px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div id="status">Loading run…</div>
+  <div id="content" style="display:none">
+    <header>
+      <h1><span class="quote">“</span><span id="title"></span><span class="quote">”</span></h1>
+      <div class="chips" id="chips"></div>
+    </header>
+
+    <div class="card">
+      <h2>Route · HR-scaled track on synthesized contours (10 m)</h2>
+      <svg id="map" role="img" aria-label="Contour map with heart-rate colored route"></svg>
+    </div>
+
+    <div id="annotations"></div>
+
+    <div class="card">
+      <h2>Elevation &amp; heart rate</h2>
+      <svg id="profile" viewBox="0 0 360 150" role="img" aria-label="Elevation and heart rate profile"></svg>
+      <div style="display:flex;gap:14px;margin-top:6px;font-size:10.5px;color:var(--dim)">
+        <span><span style="color:#7d8ea3">■</span> elevation</span>
+        <span><span style="color:#e67e22">■</span> heart rate</span>
+        <span style="margin-left:auto">dots = coaching pins</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Summary</h2>
+      <div class="grid mono" id="summary"></div>
+    </div>
+
+    <div class="card">
+      <h2>Time in HR zone</h2>
+      <div id="zones"></div>
+    </div>
+
+    <footer id="footer"></footer>
+  </div>
+</div>
+
+<script>
+const DEFAULT_ID = "19414064627";
+const qs = new URLSearchParams(location.search);
+const RUN_ID = qs.get("id") || DEFAULT_ID;
+
+const TCOLOR = {neutral:"#58a6ff", target:"#2ecc71", warning:"#f1c40f", critical:"#ff5c5c"};
+
+let D, WAY;
+let latMin,latMax,lngMin,lngMax,KX,KY,W,H,PAD,PW,PH,N,RX,RY;
+
+function computeBounds(){
+  const lats = D.location.map(p=>p[0]), lngs = D.location.map(p=>p[1]);
+  latMin=Math.min(...lats); latMax=Math.max(...lats);
+  lngMin=Math.min(...lngs); lngMax=Math.max(...lngs);
+  const midLat=(latMin+latMax)/2;
+  KX = Math.cos(midLat*Math.PI/180)*111320; KY = 110900;
+  W=(lngMax-lngMin)*KX; H=(latMax-latMin)*KY;
+  PAD=0.14*Math.max(W,H);
+  PW=W+2*PAD; PH=H+2*PAD;
+  N=D.location.length;
+  RX=D.location.map(p=>(p[1]-lngMin)*KX);
+  RY=D.location.map(p=>(latMax-p[0])*KY);
+}
+
+function buildWaypoints(){
+  const n=N;
+  let sIdx=0, sAlt=D.alt[0];
+  for(let i=0;i<n;i++){ if(D.alt[i]>sAlt){sAlt=D.alt[i];sIdx=i;} }
+  const climbMid = Math.round(sIdx/2);
+  let steepIdx=sIdx, steepG=0;
+  for(let i=sIdx;i<n;i++){ if(D.grade[i]<steepG){steepG=D.grade[i];steepIdx=i;} }
+  const q8 = Math.max(1, Math.round(n*0.08));
+  const fade = Math.round(sIdx + (n-1-sIdx)*0.85);
+  const kmAt = i => (D.dist[i]/1000).toFixed(2);
+  const gain = Math.round(Math.max(...D.alt) - D.alt[0]);
+  WAY = [
+    {idx:0, type:"neutral", title:"START", sub:`${Math.round(D.alt[0])} m · HR ${D.hr[0]}`,
+     detail:"Start of the effort. Watch how quickly the gradient and heart rate ramp in the opening stretch."},
+    {idx:q8, type:"warning", title:"EFFORT BUILDS", sub:`${kmAt(q8)} km · HR ${D.hr[q8]}`,
+     detail:"Heart rate climbing early. Settle the pace here so the effort stays controlled through the main climb."},
+    {idx:climbMid, type:"target", title:"MID CLIMB", sub:`${kmAt(climbMid)} km · HR ${D.hr[climbMid]}`,
+     detail:"Roughly midway up the climb. Hold this line — control usually breaks near the top."},
+    {idx:sIdx, type:"neutral", title:"SUMMIT", sub:`${kmAt(sIdx)} km · ${Math.round(sAlt)} m turnaround`,
+     detail:`+${gain} m of gain behind you, top of the loop. From here it's the descent — its own kind of hard.`},
+    {idx:steepIdx, type:"critical", title:"STEEP DROP", sub:`${kmAt(steepIdx)} km · ${D.grade[steepIdx]}% descent`,
+     detail:"Sharpest downhill of the run. Peak eccentric quad load — shorten stride, lift cadence, don't brake hard."},
+    {idx:fade, type:"warning", title:"LEGS FADING", sub:`${kmAt(fade)} km · easing off`,
+     detail:"Pace bleeds back as the descent flattens and fatigue lands. Keep turnover up through the final rollers."},
+    {idx:n-1, type:"neutral", title:"FINISH", sub:`${kmAt(n-1)} km · ${D.meta.moving||""}`,
+     detail:`Back near the trailhead. ${D.meta.distance_km} km, +${D.meta.elev_gain_m} m, avg HR ${D.meta.avg_hr}. A steady out-and-back climb.`}
+  ];
+}
+
+function hrColor(hr){
+  const t = Math.max(0, Math.min(1, (hr-145)/30));
+  return `hsl(${Math.round(135*(1-t))},72%,48%)`;
+}
+function paceStr(v){
+  if(!v || v<0.3) return "—";
+  const s = 1000/v, m = Math.floor(s/60), ss = Math.round(s%60);
+  return `${m}:${String(ss).padStart(2,"0")}/km`;
+}
+
+function buildField(){
+  const nx=73, ny=73, dx=PW/(nx-1), dy=PH/(ny-1), g=[];
+  for(let j=0;j<ny;j++){
+    const row=[];
+    for(let i=0;i<nx;i++){
+      const x=-PAD+i*dx, y=-PAD+j*dy;
+      let num=0, den=0;
+      for(let k=0;k<N;k++){
+        const ddx=x-RX[k], ddy=y-RY[k], d2=ddx*ddx+ddy*ddy;
+        const w=1/Math.pow(d2+4,1.25);
+        num+=w*D.alt[k]; den+=w;
+      }
+      row.push(num/den);
+    }
+    g.push(row);
+  }
+  for(let s=0;s<2;s++){
+    const g2=g.map(r=>r.slice());
+    for(let j=1;j<ny-1;j++)for(let i=1;i<nx-1;i++)
+      g2[j][i]=(g[j][i]*4+g[j][i-1]+g[j][i+1]+g[j-1][i]+g[j+1][i])/8;
+    for(let j=0;j<ny;j++)for(let i=0;i<nx;i++)g[j][i]=g2[j][i];
+  }
+  return {g,nx,ny,dx,dy};
+}
+
+function contourSegs(g,nx,ny,dx,dy,level){
+  const segs=[];
+  for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){
+    const a=g[j][i], b=g[j][i+1], c=g[j+1][i+1], d=g[j+1][i];
+    let cs=0;
+    if(a>level)cs|=8; if(b>level)cs|=4; if(c>level)cs|=2; if(d>level)cs|=1;
+    if(cs===0||cs===15) continue;
+    const x0=-PAD+i*dx, y0=-PAD+j*dy;
+    const L=(v0,v1)=>(level-v0)/(v1-v0);
+    const top=[x0+dx*L(a,b),y0], right=[x0+dx,y0+dy*L(b,c)],
+          bot=[x0+dx*L(d,c),y0+dy], left=[x0,y0+dy*L(a,d)];
+    const add=(p,q)=>segs.push([p,q]);
+    switch(cs){
+      case 1: add(left,bot); break;
+      case 2: add(bot,right); break;
+      case 3: add(left,right); break;
+      case 4: add(top,right); break;
+      case 5: add(top,left); add(bot,right); break;
+      case 6: add(top,bot); break;
+      case 7: add(top,left); break;
+      case 8: add(top,left); break;
+      case 9: add(top,bot); break;
+      case 10: add(top,right); add(left,bot); break;
+      case 11: add(top,right); break;
+      case 12: add(left,right); break;
+      case 13: add(bot,right); break;
+      case 14: add(left,bot); break;
+    }
+  }
+  return segs;
+}
+
+function renderMap(){
+  const svg = document.getElementById("map");
+  svg.setAttribute("viewBox",`0 0 ${PW} ${PH}`);
+  const ns = "http://www.w3.org/2000/svg";
+  const el = (t,at)=>{const e=document.createElementNS(ns,t);for(const k in at)e.setAttribute(k,at[k]);return e;};
+
+  const {g,nx,ny,dx,dy} = buildField();
+  const altMin=Math.min(...D.alt), altMax=Math.max(...D.alt);
+  const loLevel = Math.floor(altMin/10)*10, hiLevel = Math.ceil(altMax/10)*10;
+  const midLevel = Math.round((loLevel+hiLevel)/20)*10;
+  const gCont = el("g",{transform:`translate(${PAD},${PAD})`,fill:"none"});
+  for(let L=loLevel;L<=hiLevel;L+=10){
+    const idx = (L%50===0);
+    const segs = contourSegs(g,nx,ny,dx,dy,L);
+    let dstr="";
+    let best=null, bestLen=0;
+    for(const [p,q] of segs){
+      dstr+=`M${p[0].toFixed(1)} ${p[1].toFixed(1)}L${q[0].toFixed(1)} ${q[1].toFixed(1)}`;
+      const len=Math.hypot(q[0]-p[0],q[1]-p[1]);
+      if(len>bestLen){bestLen=len;best=[p,q];}
+    }
+    gCont.appendChild(el("path",{d:dstr,stroke:idx?"#3d4a5e":"#242e3c",
+      "stroke-width":idx?3.2:2.2,"stroke-linecap":"round"}));
+    if(idx&&best){
+      const [p,q]=best, mx=(p[0]+q[0])/2, my=(p[1]+q[1])/2;
+      const ang=Math.atan2(q[1]-p[1],q[0]-p[0])*180/Math.PI;
+      const t=el("text",{x:mx,y:my,transform:`rotate(${ang} ${mx} ${my})`,
+        "font-size":30,fill:"#7d8ea3","text-anchor":"middle",
+        "paint-order":"stroke",stroke:"#0b0e13","stroke-width":8});
+      t.textContent=`${L} m`;
+      gCont.appendChild(t);
+    }
+  }
+  svg.appendChild(gCont);
+
+  let under="";
+  for(let i=0;i<N;i++) under+=`${i?"L":"M"}${(RX[i]+PAD).toFixed(1)} ${(RY[i]+PAD).toFixed(1)}`;
+  svg.appendChild(el("path",{d:under,fill:"none",stroke:"#000","stroke-width":22,
+    opacity:.55,"stroke-linecap":"round","stroke-linejoin":"round"}));
+
+  for(let i=0;i<N-1;i++){
+    const hr=(D.hr[i]+D.hr[i+1])/2;
+    svg.appendChild(el("line",{
+      x1:RX[i]+PAD, y1:RY[i]+PAD, x2:RX[i+1]+PAD, y2:RY[i+1]+PAD,
+      stroke:hrColor(hr),"stroke-width":11,"stroke-linecap":"round"}));
+  }
+
+  WAY.forEach((w,k)=>{
+    const x=RX[w.idx]+PAD, y=RY[w.idx]+PAD, c=TCOLOR[w.type];
+    const gMark=el("g",{cursor:"pointer"});
+    gMark.appendChild(el("circle",{cx:x,cy:y,r:17,fill:c,stroke:"#0b0e13","stroke-width":5}));
+    const t=el("text",{x:x,y:y+7,"font-size":24,"font-weight":800,fill:"#0b0e13","text-anchor":"middle"});
+    t.textContent=k+1;
+    gMark.appendChild(t);
+    gMark.addEventListener("click",()=>{
+      const card=document.getElementById("ann"+(k+1));
+      card.scrollIntoView({behavior:"smooth",block:"center"});
+      card.classList.add("flash");
+      setTimeout(()=>card.classList.remove("flash"),1200);
+    });
+    svg.appendChild(gMark);
+  });
+}
+
+function renderAnnotations(){
+  const wrap=document.getElementById("annotations");
+  wrap.innerHTML="";
+  WAY.forEach((w,k)=>{
+    const i=w.idx, c=TCOLOR[w.type];
+    const div=document.createElement("div");
+    div.className="ann"; div.id="ann"+(k+1);
+    div.innerHTML=
+      `<div class="n" style="background:${c}">${k+1}</div>
+       <div>
+         <div class="t" style="color:${c}">${w.title}</div>
+         <div class="m mono">${w.sub} · HR ${D.hr[i]} · ${paceStr(D.vel[i])} · grade ${D.grade[i]}% · ${(D.dist[i]/1000).toFixed(2)} km</div>
+         <div class="d">${w.detail}</div>
+       </div>`;
+    wrap.appendChild(div);
+  });
+}
+
+function renderProfile(){
+  const svg=document.getElementById("profile");
+  svg.innerHTML="";
+  const ns="http://www.w3.org/2000/svg";
+  const el=(t,at)=>{const e=document.createElementNS(ns,t);for(const k in at)e.setAttribute(k,at[k]);return e;};
+  const ml=34, mr=10, mt=12, mb=20, pw=360-ml-mr, ph=150-mt-mb;
+  const dMax=D.dist[N-1];
+  const altMin=Math.min(...D.alt), altMax=Math.max(...D.alt);
+  const aLo=Math.floor((altMin-5)/10)*10, aHi=Math.ceil((altMax+5)/10)*10;
+  const hrMin=Math.min(...D.hr), hrMax=Math.max(...D.hr);
+  const hLo=Math.max(0,hrMin-10), hHi=hrMax+10;
+  const x=d=>ml+d/dMax*pw;
+  const yA=a=>mt+ph-(a-aLo)/(aHi-aLo)*ph;
+  const yH=h=>mt+ph-(h-hLo)/(hHi-hLo)*ph;
+
+  [aLo,Math.round((aLo+aHi)/2),aHi].forEach(v=>{
+    svg.appendChild(el("line",{x1:ml,x2:360-mr,y1:yA(v),y2:yA(v),stroke:"#1e2632","stroke-width":1}));
+    const t=el("text",{x:4,y:yA(v)+3,"font-size":9,fill:"#5b6773"});
+    t.textContent=v; svg.appendChild(t);
+  });
+
+  let area=`M${x(0)} ${yA(D.alt[0])}`;
+  for(let i=1;i<N;i++) area+=`L${x(D.dist[i])} ${yA(D.alt[i])}`;
+  area+=`L${x(dMax)} ${yA(aLo)}L${x(0)} ${yA(aLo)}Z`;
+  svg.appendChild(el("path",{d:area,fill:"#7d8ea3",opacity:.22}));
+  let ridge=`M${x(0)} ${yA(D.alt[0])}`;
+  for(let i=1;i<N;i++) ridge+=`L${x(D.dist[i])} ${yA(D.alt[i])}`;
+  svg.appendChild(el("path",{d:ridge,fill:"none",stroke:"#7d8ea3","stroke-width":1.5}));
+
+  for(let i=0;i<N-1;i++){
+    svg.appendChild(el("line",{
+      x1:x(D.dist[i]),y1:yH(D.hr[i]),x2:x(D.dist[i+1]),y2:yH(D.hr[i+1]),
+      stroke:hrColor((D.hr[i]+D.hr[i+1])/2),"stroke-width":1.6}));
+  }
+
+  WAY.forEach((w)=>{
+    svg.appendChild(el("circle",{cx:x(D.dist[w.idx]),cy:yA(D.alt[w.idx]),r:3.4,
+      fill:TCOLOR[w.type],stroke:"#0b0e13","stroke-width":1.2}));
+  });
+
+  const kmMax=Math.floor(dMax/1000);
+  for(let km=0;km<=kmMax;km++){
+    const t=el("text",{x:x(km*1000),y:146,"font-size":9,fill:"#5b6773","text-anchor":"middle"});
+    t.textContent=km+" km"; svg.appendChild(t);
+  }
+}
+
+function renderZones(){
+  const zs=[[0,121,"Z1","#58a6ff"],[122,151,"Z2","#2ecc71"],[152,166,"Z3","#f1c40f"],
+            [167,180,"Z4","#e67e22"],[181,999,"Z5","#ff5c5c"]];
+  const counts=zs.map(()=>0);
+  D.hr.forEach(h=>{for(let z=0;z<5;z++)if(h>=zs[z][0]&&h<=zs[z][1]){counts[z]++;break;}});
+  const wrap=document.getElementById("zones");
+  wrap.innerHTML="";
+  zs.forEach((z,i)=>{
+    const pct=counts[i]/N*100;
+    const row=document.createElement("div");
+    row.className="zrow";
+    row.innerHTML=`<span class="zl">${z[2]}</span>
+      <div class="zb"><div class="zf" style="width:${pct.toFixed(1)}%;background:${z[3]}"></div></div>
+      <span class="zp mono">${pct.toFixed(0)}%</span>`;
+    wrap.appendChild(row);
+  });
+}
+
+function renderMeta(){
+  const m=D.meta;
+  document.getElementById("title").textContent = m.name || "Run";
+  document.title = (m.name||"Run") + " · Trail Run Dashboard";
+  const chips=document.getElementById("chips");
+  chips.innerHTML="";
+  const addChip=t=>{const s=document.createElement("span");s.className="chip";s.textContent=t;chips.appendChild(s);};
+  if(m.sport||m.date) addChip(`${m.sport||"Run"}${m.date?" · "+m.date:""}`);
+  if(m.distance_km!=null) addChip(`${m.distance_km} km · +${m.elev_gain_m} m`);
+  addChip(`${latMin.toFixed(2)}°N`);
+
+  const stats=[
+    [m.distance_km,"km"],[m.moving,"moving"],[m.pace,"/km"],[m.elev_gain_m,"elev m"],
+    [m.avg_hr,"avg hr"],[m.max_hr,"max hr"],[m.calories,"kcal"],[N,"points"]
+  ];
+  const sum=document.getElementById("summary");
+  sum.innerHTML="";
+  stats.forEach(([v,k])=>{
+    if(v==null||v==="") return;
+    const d=document.createElement("div"); d.className="stat";
+    d.innerHTML=`<div class="v">${v}</div><div class="k">${k}</div>`;
+    sum.appendChild(d);
+  });
+
+  document.getElementById("footer").innerHTML =
+    `Source: Strava activity ${m.id} “${m.name||""}” · ${m.distance_km} km${m.date?" · "+m.date:""}. `+
+    `Streams fetched at high resolution (${N} pts) via a Make scenario writing to GitHub.<br>`+
+    `Contours are synthesized from track altitude via IDW interpolation (10 m interval); route color = heart rate `+
+    `(green ≤145 → red ≥175 bpm).`;
+}
+
+function boot(data){
+  const s = data.streams || {};
+  D = {
+    location: s.location, hr: s.hr, alt: s.alt, dist: s.dist,
+    vel: s.vel, grade: s.grade, time: s.time,
+    meta: {
+      id:data.id, name:data.name, sport:data.sport, date:data.date,
+      distance_km:data.distance_km, elev_gain_m:data.elev_gain_m,
+      moving:data.moving, pace:data.pace, avg_hr:data.avg_hr,
+      max_hr:data.max_hr, calories:data.calories
+    }
+  };
+  if(!D.location || !D.location.length) throw new Error("no location stream");
+  computeBounds();
+  buildWaypoints();
+  document.getElementById("status").style.display="none";
+  document.getElementById("content").style.display="block";
+  renderMeta();
+  renderMap();
+  renderAnnotations();
+  renderProfile();
+  renderZones();
+}
+
+fetch(`runs/${RUN_ID}.json`, {cache:"no-cache"})
+  .then(r=>{ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
+  .then(boot)
+  .catch(err=>{
+    document.getElementById("status").innerHTML =
+      `Could not load run <b>${RUN_ID}</b>.<br><span style="font-size:11px;color:#5b6773">${err.message}</span>`;
+  });
+</script>
+</body>
+</html>
