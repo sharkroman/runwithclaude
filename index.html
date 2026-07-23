@@ -87,7 +87,12 @@
     font-weight: 600;
   }
   .lang-btn.active { background: var(--txt); color: #fff; }
+  #chat-history div div p { margin-bottom: 8px; }
+  #chat-history div div ul, #chat-history div div ol { margin-left: 20px; margin-bottom: 8px; }
+  #chat-history div div code { background: var(--panel2); padding: 2px 4px; border-radius: 4px; font-family: monospace; }
+  #chat-history div div pre { background: var(--panel2); padding: 8px; border-radius: 4px; overflow-x: auto; margin-bottom: 8px; }
 </style>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -145,14 +150,12 @@
       <label style="display:block;"><span data-i18n="model">Model:</span> 
         <select id="chat-model" style="width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--txt); margin-top: 4px; font-family: inherit;">
           <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-          <option value="anthropic/claude-sonnet-5">Claude Sonnet 5</option>
-          <option value="anthropic/claude-opus-4.8">Claude Opus 4.8</option>
           <option value="openai/gpt-4o">GPT-4o</option>
-          <option value="openai/gpt-5-omni">GPT-5 Omni</option>
+          <option value="openai/o1">OpenAI o1</option>
+          <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
+          <option value="moonshotai/kimi-latest">Kimi (Latest)</option>
+          <option value="anthropic/claude-opus-4.8">Claude Opus 4.8</option>
           <option value="meta-llama/llama-4-maverick">Llama 4 Maverick</option>
-          <option value="google/gemini-3.6-flash">Gemini 3.6 Flash</option>
-          <option value="mistralai/mixtral-8x22b-instruct">Mixtral 8x22b</option>
-          <option value="poolside/laguna-s-2.1">Laguna S 2.1</option>
           <option value="openrouter/auto">OpenRouter Auto (Best Available)</option>
         </select>
       </label>
