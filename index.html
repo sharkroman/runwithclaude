@@ -496,8 +496,13 @@ function renderAnnotations(){
     else if (w.tKey==="drop") subText = `${kmAt(i)} ${t('km')} · grade ${D.grade[i]}%`;
     else subText = `${kmAt(i)} ${t('km')}`;
     
-    let detailText = t(w.dKey);
-    if(w.tKey==="summit") detailText = `+${w.gain} ` + detailText;
+    let detailText = "";
+    if (D.meta.ai_tips && D.meta.ai_tips[k]) {
+      detailText = D.meta.ai_tips[k];
+    } else {
+      detailText = t(w.dKey);
+      if(w.tKey==="summit") detailText = `+${w.gain} ` + detailText;
+    }
     
     div.innerHTML=
       `<div class="n" style="background:${c}">${k+1}</div>
