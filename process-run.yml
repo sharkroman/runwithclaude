@@ -1,0 +1,35 @@
+name: Process Strava Run
+on:
+  repository_dispatch:
+    types: [new_strava_run]
+  workflow_dispatch:
+    inputs:
+      activity_id:
+        description: 'Specific Strava Activity ID (optional)'
+        required: false
+jobs:
+  fetch-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Run Fetch Script
+        env:
+          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
+          STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+          STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -n "${{ github.event.client_payload.activity_id }}" ]; then
+            node tools/backfill.js "${{ github.event.client_payload.activity_id }}"
+          else
+            node tools/backfill.js
+          fi
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add runs/
+          git commit -m "Auto-update Strava run + AI Tips" || exit 0
+          git push
