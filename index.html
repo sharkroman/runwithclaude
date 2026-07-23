@@ -100,6 +100,7 @@
   <div id="content" style="display:none">
     <header>
       <h1><span class="quote">“</span><span id="title"></span><span class="quote">”</span></h1>
+      <select id="run-selector" style="margin-top: 10px; width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--txt); font-family: inherit; font-size: 13px; cursor: pointer;"></select>
       <div class="chips" id="chips"></div>
     </header>
 
@@ -136,6 +137,19 @@
       <div id="zones"></div>
     </div>
 
+    <!-- AI Chat Interface -->
+    <div class="card" id="chat-card">
+      <h2 data-i18n="chat_title">AI Coach (OpenRouter)</h2>
+      <div style="margin-bottom: 10px; font-size: 11px; color: var(--dim);">
+        <label><span data-i18n="api_key">API Key:</span> <input type="password" id="api-key" placeholder="sk-or-v1-..." style="width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--txt); margin-top: 4px;"></label>
+      </div>
+      <div id="chat-history" style="max-height: 200px; overflow-y: auto; margin-bottom: 10px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; line-height: 1.4;"></div>
+      <div style="display: flex; gap: 6px;">
+        <input type="text" id="chat-input" data-placeholder-i18n="chat_placeholder" placeholder="Ask about your run..." style="flex: 1; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--txt);">
+        <button id="chat-send" data-i18n="send" style="padding: 8px 12px; background: var(--txt); color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">Send</button>
+      </div>
+    </div>
+
     <footer id="footer"></footer>
   </div>
 </div>
@@ -159,7 +173,9 @@ const I18N = {
     fade_det: "Pace bleeds back as the descent flattens and fatigue lands. Keep turnover up through the final rollers.",
     finish_det: "Back near the trailhead. A steady out-and-back climb.",
     source: "Source: Strava activity",
-    footer_text: "Streams fetched at high resolution via a Make scenario writing to GitHub.<br>Contours are synthesized from track altitude via IDW interpolation (10 m interval); route color = heart rate (green ≤145 → red ≥175 bpm)."
+    footer_text: "Streams fetched at high resolution via a Make scenario writing to GitHub.<br>Contours are synthesized from track altitude via IDW interpolation (10 m interval); route color = heart rate (green ≤145 → red ≥175 bpm).",
+    chat_title: "AI Coach (OpenRouter)", api_key: "API Key:", chat_placeholder: "Ask about your run...", send: "Send",
+    select_run: "-- Select a previous run --"
   },
   zh: {
     loading: "正在加载数据…", error: "无法加载数据",
@@ -178,7 +194,9 @@ const I18N = {
     fade_det: "随着下坡变缓和疲劳袭来，配速开始下降。在最后的起伏路段保持步频。",
     finish_det: "回到起点附近。一次稳定的折返爬升训练。",
     source: "数据来源: Strava 活动",
-    footer_text: "通过 Make 自动化获取高精度轨迹数据并写入 GitHub。<br>等高线通过海拔数据反向插值生成 (10米等高距)；轨迹颜色 = 心率 (绿色 ≤145 → 红色 ≥175 bpm)。"
+    footer_text: "通过 Make 自动化获取高精度轨迹数据并写入 GitHub。<br>等高线通过海拔数据反向插值生成 (10米等高距)；轨迹颜色 = 心率 (绿色 ≤145 → 红色 ≥175 bpm)。",
+    chat_title: "AI 教练 (OpenRouter)", api_key: "API 密钥:", chat_placeholder: "询问关于这次跑步的建议...", send: "发送",
+    select_run: "-- 选择历史记录 --"
   }
 };
 
@@ -188,9 +206,10 @@ function setLang(l) {
   LANG = l; localStorage.setItem("lang", l);
   document.getElementById("btn-en").className = "lang-btn" + (l==="en"?" active":"");
   document.getElementById("btn-zh").className = "lang-btn" + (l==="zh"?" active":"");
-  document.querySelectorAll("[data-i18n]").forEach(el => {
-    el.innerHTML = t(el.getAttribute("data-i18n"));
-  });
+  document.querySelectorAll("[data-i18n]").forEach(el => { el.innerHTML = t(el.getAttribute("data-i18n")); });
+  document.querySelectorAll("[data-placeholder-i18n]").forEach(el => { el.placeholder = t(el.getAttribute("data-placeholder-i18n")); });
+  
+  if (window.runsIndex) populateRunSelector(window.runsIndex);
   if(D) { renderMeta(); renderAnnotations(); renderZones(); }
 }
 
@@ -202,6 +221,30 @@ const TCOLOR = {neutral:"#3B71CA", target:"#2E8540", warning:"#D97757", critical
 
 let D, WAY;
 let latMin,latMax,lngMin,lngMax,KX,KY,W,H,PAD,PW,PH,N,RX,RY;
+
+function populateRunSelector(indexData) {
+  const sel = document.getElementById("run-selector");
+  sel.innerHTML = `<option value="">${t("select_run")}</option>`;
+  indexData.forEach(r => {
+    const opt = document.createElement("option");
+    opt.value = r.id;
+    opt.textContent = `${r.date.split(" ")[0]} · ${r.distance_km} ${t("km")} · ${r.name}`;
+    if(r.id == RUN_ID) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+// Fetch run index
+fetch('runs/index.json', {cache:"no-cache"})
+  .then(r => r.ok ? r.json() : [])
+  .then(data => {
+    window.runsIndex = data;
+    populateRunSelector(data);
+  }).catch(() => {});
+
+document.getElementById("run-selector").addEventListener("change", (e) => {
+  if(e.target.value) window.location.search = '?id=' + e.target.value;
+});
 
 function computeBounds(){
   const lats = D.location.map(p=>p[0]), lngs = D.location.map(p=>p[1]);
@@ -241,8 +284,6 @@ function buildWaypoints(){
 
 function hrColor(hr){
   const t_val = Math.max(0, Math.min(1, (hr-145)/30));
-  // Claude palette transition: green -> amber -> red
-  // Green: 46,133,64. Amber: 217,119,87. Red: 194,59,34
   if (t_val < 0.5) {
     const f = t_val * 2;
     const r = Math.round(46 + f*(217-46)), g = Math.round(133 + f*(119-133)), b = Math.round(64 + f*(87-64));
@@ -267,7 +308,7 @@ function buildField(){
     for(let i=0;i<nx;i++){
       const x=-PAD+i*dx, y=-PAD+j*dy;
       let num=0, den=0;
-      for(let k=0;k<N;k+=3){ // optimization step
+      for(let k=0;k<N;k+=3){
         const ddx=x-RX[k], ddy=y-RY[k], d2=ddx*ddx+ddy*ddy;
         const w=1/Math.pow(d2+4,1.25);
         num+=w*D.alt[k]; den+=w;
@@ -367,8 +408,9 @@ function renderMap(){
   WAY.forEach((w,k)=>{
     const x=RX[w.idx]+PAD, y=RY[w.idx]+PAD, c=TCOLOR[w.type];
     const gMark=el("g",{cursor:"pointer"});
-    gMark.appendChild(el("circle",{cx:x,cy:y,r:17,fill:c,stroke:"#FFFFFF","stroke-width":5}));
-    const tx=el("text",{x:x,y:y+7,"font-size":24,"font-weight":800,fill:"#FFFFFF","text-anchor":"middle"});
+    // Increased size to r=22 for better mobile tapping
+    gMark.appendChild(el("circle",{cx:x,cy:y,r:22,fill:c,stroke:"#FFFFFF","stroke-width":5}));
+    const tx=el("text",{x:x,y:y+8,"font-size":24,"font-weight":800,fill:"#FFFFFF","text-anchor":"middle"});
     tx.textContent=k+1;
     gMark.appendChild(tx);
     gMark.addEventListener("click",()=>{
@@ -380,7 +422,6 @@ function renderMap(){
     svg.appendChild(gMark);
   });
   
-  // Interactive Hover
   const tooltip = document.getElementById("map-tooltip");
   const container = document.getElementById("map-container");
   
@@ -394,17 +435,15 @@ function renderMap(){
     const svgX = x * scaleX;
     const svgY = y * scaleY;
     
-    // Find closest point
     let minDist = Infinity, bestIdx = 0;
-    for(let i=0;i<N;i+=2) { // step by 2 for performance
+    for(let i=0;i<N;i+=2) { 
       const dx = (RX[i]+PAD) - svgX;
       const dy = (RY[i]+PAD) - svgY;
       const d2 = dx*dx + dy*dy;
       if(d2 < minDist) { minDist = d2; bestIdx = i; }
     }
     
-    // If hover is close enough to the track (within ~30 pixels visually)
-    if(minDist < 4000) { // arbitrary threshold in SVG space
+    if(minDist < 4000) {
       const px = (RX[bestIdx]+PAD) / scaleX;
       const py = (RY[bestIdx]+PAD) / scaleY;
       tooltip.style.left = px + "px";
@@ -418,7 +457,6 @@ function renderMap(){
   
   container.addEventListener("mousemove", handlePointer);
   container.addEventListener("touchmove", (e) => {
-    // Only prevent default if we are actually hovering over the track (so we can still scroll the page elsewhere)
     if(tooltip.style.display === "block") e.preventDefault();
     handlePointer(e.touches[0]);
   }, {passive: false});
@@ -490,9 +528,16 @@ function renderProfile(){
       stroke:hrColor((D.hr[i]+D.hr[i+1])/2),"stroke-width":1.6}));
   }
 
-  WAY.forEach((w)=>{
-    svg.appendChild(el("circle",{cx:x(D.dist[w.idx]),cy:yA(D.alt[w.idx]),r:3.4,
-      fill:TCOLOR[w.type],stroke:"#FFFFFF","stroke-width":1.2}));
+  WAY.forEach((w, k)=>{
+    const circ = el("circle",{cx:x(D.dist[w.idx]),cy:yA(D.alt[w.idx]),r:5.5,
+      fill:TCOLOR[w.type],stroke:"#FFFFFF","stroke-width":2,cursor:"pointer"});
+    circ.addEventListener("click",()=>{
+      const card=document.getElementById("ann"+(k+1));
+      card.scrollIntoView({behavior:"smooth",block:"center"});
+      card.classList.add("flash");
+      setTimeout(()=>card.classList.remove("flash"),1200);
+    });
+    svg.appendChild(circ);
   });
 
   const kmMax=Math.floor(dMax/1000);
@@ -500,6 +545,46 @@ function renderProfile(){
     const tx=el("text",{x:x(kmm*1000),y:146,"font-size":9,fill:"var(--dim)","text-anchor":"middle"});
     tx.textContent=kmm; svg.appendChild(tx);
   }
+
+  // Interactive Hover for Profile
+  const tooltip = document.getElementById("profile-tooltip");
+  const container = document.getElementById("profile-container");
+
+  function handleProfilePointer(e) {
+    if (!N) return;
+    const rect = svg.getBoundingClientRect();
+    const clientX = e.clientX - rect.left;
+    const clientY = e.clientY - rect.top;
+    const scaleX = 360 / rect.width;
+    const svgX = clientX * scaleX;
+    
+    let distVal = (svgX - ml) * dMax / pw;
+    if (distVal < 0) distVal = 0;
+    if (distVal > dMax) distVal = dMax;
+    
+    let bestIdx = 0, minDist = Infinity;
+    for(let i=0; i<N; i+=2) {
+      const diff = Math.abs(D.dist[i] - distVal);
+      if(diff < minDist) { minDist = diff; bestIdx = i; }
+    }
+    
+    if(svgX >= ml - 5 && svgX <= 360 - mr + 5) {
+      tooltip.style.left = clientX + "px";
+      tooltip.style.top = clientY + "px";
+      tooltip.innerHTML = `HR ${D.hr[bestIdx]} <span style="color:#A39E93;margin:0 4px">|</span> ${(D.dist[bestIdx]/1000).toFixed(2)}${t('km')} <span style="color:#A39E93;margin:0 4px">|</span> ${Math.round(D.alt[bestIdx])}m`;
+      tooltip.style.display = "block";
+    } else {
+      tooltip.style.display = "none";
+    }
+  }
+  
+  container.addEventListener("mousemove", handleProfilePointer);
+  container.addEventListener("touchmove", (e) => {
+    if(tooltip.style.display === "block") e.preventDefault();
+    handleProfilePointer(e.touches[0]);
+  }, {passive: false});
+  container.addEventListener("mouseleave", () => tooltip.style.display="none");
+  container.addEventListener("touchend", () => tooltip.style.display="none");
 }
 
 function renderZones(){
@@ -549,6 +634,86 @@ function renderMeta(){
     t('footer_text');
 }
 
+// Chat functionality
+const apiKeyInput = document.getElementById("api-key");
+const chatInput = document.getElementById("chat-input");
+const chatSend = document.getElementById("chat-send");
+const chatHistory = document.getElementById("chat-history");
+
+apiKeyInput.value = localStorage.getItem("openrouter_key") || "";
+apiKeyInput.addEventListener("change", () => localStorage.setItem("openrouter_key", apiKeyInput.value));
+
+let conversation = [];
+
+async function sendChat() {
+  const text = chatInput.value.trim();
+  if(!text) return;
+  const key = apiKeyInput.value.trim();
+  if(!key) { alert("Please enter an OpenRouter API key first."); return; }
+  
+  addChatMsg("You", text);
+  chatInput.value = "";
+  chatSend.disabled = true;
+  chatSend.textContent = "...";
+
+  if(conversation.length === 0) {
+    conversation.push({
+      role: "system",
+      content: `You are an elite trail running coach analyzing data. The user just completed a run named "${D.meta.name}".
+Data: ${D.meta.distance_km}km, +${D.meta.elev_gain_m}m elevation, ${D.meta.moving} moving time, ${D.meta.pace}/km average pace.
+Avg HR: ${D.meta.avg_hr}, Max HR: ${D.meta.max_hr}. 
+Provide concise, actionable insights and answer the user's questions.`
+    });
+  }
+  conversation.push({ role: "user", content: text });
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${key}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://sharkroman.github.io",
+        "X-Title": "Trail Run Dashboard"
+      },
+      body: JSON.stringify({
+        model: "anthropic/claude-3.5-sonnet", // Can be used through openrouter
+        messages: conversation
+      })
+    });
+    
+    if(!res.ok) {
+      const errBody = await res.text();
+      throw new Error(`API Error ${res.status}: ${errBody}`);
+    }
+    
+    const data = await res.json();
+    const reply = data.choices[0].message.content;
+    conversation.push({ role: "assistant", content: reply });
+    addChatMsg("AI Coach", reply);
+  } catch (err) {
+    addChatMsg("System", err.message);
+  } finally {
+    chatSend.disabled = false;
+    chatSend.textContent = t('send');
+  }
+}
+
+function addChatMsg(sender, msg) {
+  const el = document.createElement("div");
+  const strong = document.createElement("strong");
+  strong.textContent = sender + ": ";
+  const span = document.createElement("span");
+  span.textContent = msg;
+  el.appendChild(strong);
+  el.appendChild(span);
+  chatHistory.appendChild(el);
+  chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+chatSend.addEventListener("click", sendChat);
+chatInput.addEventListener("keypress", (e) => { if(e.key === "Enter") sendChat(); });
+
 function boot(data){
   const s = data.streams || {};
   D = {
@@ -566,7 +731,7 @@ function boot(data){
   buildWaypoints();
   document.getElementById("status").style.display="none";
   document.getElementById("content").style.display="block";
-  setLang(LANG); // Initial translation
+  setLang(LANG);
   renderMap();
   renderProfile();
 }
@@ -578,7 +743,7 @@ fetch(`runs/${RUN_ID}.json`, {cache:"no-cache"})
     document.getElementById("status").innerHTML =
       `${t('error')} <b>${RUN_ID}</b>.<br><span style="font-size:11px;color:var(--dim)">${err.message}</span>`;
   });
-setLang(LANG); // Set lang early for the Loading message
+setLang(LANG);
 </script>
 </body>
 </html>
