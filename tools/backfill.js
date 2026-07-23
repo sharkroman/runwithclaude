@@ -111,7 +111,7 @@ Write exactly 7 short coaching observations (one for each moment). Each observat
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash-lite",
+          model: "openai/gpt-4o-mini",
           messages: [{ role: "user", content: prompt }]
         })
       });
@@ -176,11 +176,12 @@ function buildRun(activity, streams) {
   };
 }
 
-async function regenTips() {
+async function regenTips(onlyId = null) {
   if (!openRouterKey) throw new Error("OPENROUTER_API_KEY is required for tips mode");
   const files = fs.readdirSync(OUT_DIR).filter(f => /^\d+\.json$/.test(f));
   let updated = 0, skipped = 0;
   for (const f of files) {
+    if (onlyId && f !== `${onlyId}.json`) continue;
     const p = path.join(OUT_DIR, f);
     const runData = JSON.parse(fs.readFileSync(p, "utf8"));
     if (runData.meta && runData.meta.ai_tips) { skipped++; continue; }
@@ -203,8 +204,9 @@ async function main() {
   // Accept specific activity ID from command line, otherwise fetch recent
   const args = process.argv.slice(2);
 
-  if (args[0] === "tips") {
-    await regenTips();
+  if (args[0] === "tips" || (args[0] || "").startsWith("tips:")) {
+    const onlyId = args[0].includes(":") ? args[0].split(":")[1] : null;
+    await regenTips(onlyId);
     return;
   }
 
