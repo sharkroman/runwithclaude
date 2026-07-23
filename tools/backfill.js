@@ -111,7 +111,7 @@ Write exactly 7 short coaching observations (one for each moment). Each observat
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "anthropic/claude-3.5-sonnet",
+          model: "google/gemini-2.5-flash-lite",
           messages: [{ role: "user", content: prompt }]
         })
       });
