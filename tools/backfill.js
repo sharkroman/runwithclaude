@@ -2,9 +2,12 @@ const fs = require("fs");
 const path = require("path");
 
 const OUT_DIR = path.join(__dirname, "..", "runs");
+const TOKEN_FILE = path.join(__dirname, "..", ".strava-refresh-token");
 const clientId = process.env.STRAVA_CLIENT_ID || "266235";
 const clientSecret = process.env.STRAVA_CLIENT_SECRET || "41af975bc552294a9b213d3d6d944d8d9607da07";
-const refreshToken = process.env.STRAVA_REFRESH_TOKEN || "df3c27549862d8ad028df413b84ae987011a9305";
+const fallbackRefreshToken = "df3c27549862d8ad028df413b84ae987011a9305";
+const storedToken = fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, "utf8").trim() : null;
+const refreshToken = process.env.STRAVA_REFRESH_TOKEN || storedToken || fallbackRefreshToken;
 const openRouterKey = process.env.OPENROUTER_API_KEY;
 
 async function getAccessToken() {
@@ -18,8 +21,12 @@ async function getAccessToken() {
       grant_type: "refresh_token",
     }),
   });
-  if (!res.ok) throw new Error("Token refresh failed");
+  if (!res.ok) throw new Error(`Token refresh failed: ${res.status}`);
   const j = await res.json();
+  if (j.refresh_token && j.refresh_token !== refreshToken) {
+    fs.writeFileSync(TOKEN_FILE, j.refresh_token);
+    console.log("Strava refresh token rotated; new token saved.");
+  }
   return j.access_token;
 }
 
@@ -162,12 +169,41 @@ function buildRun(activity, streams) {
   };
 }
 
+async function regenTips() {
+  if (!openRouterKey) throw new Error("OPENROUTER_API_KEY is required for tips mode");
+  const files = fs.readdirSync(OUT_DIR).filter(f => /^\d+\.json$/.test(f));
+  let updated = 0, skipped = 0;
+  for (const f of files) {
+    const p = path.join(OUT_DIR, f);
+    const runData = JSON.parse(fs.readFileSync(p, "utf8"));
+    if (runData.meta && runData.meta.ai_tips) { skipped++; continue; }
+    if (!runData.streams || !runData.streams.alt || !runData.streams.alt.length) { skipped++; continue; }
+    console.log(`Generating tips for ${runData.id} - ${runData.name}...`);
+    const tips = await generateAITips(runData);
+    if (tips) {
+      runData.meta = runData.meta || {};
+      runData.meta.ai_tips = tips;
+      fs.writeFileSync(p, JSON.stringify(runData));
+      updated++;
+    } else {
+      console.log(`  tips generation failed for ${runData.id}, skipped`);
+    }
+  }
+  console.log(`AI tips updated for ${updated} runs (${skipped} skipped).`);
+}
+
 async function main() {
-  const token = await getAccessToken();
-  console.log("Got access token");
-  
   // Accept specific activity ID from command line, otherwise fetch recent
   const args = process.argv.slice(2);
+
+  if (args[0] === "tips") {
+    await regenTips();
+    return;
+  }
+
+  const token = await getAccessToken();
+  console.log("Got access token");
+
   let activities = [];
   
   if (args.length > 0 && args[0] !== 'all') {
@@ -242,4 +278,4 @@ async function main() {
   console.log(`Updated index.json`);
 }
 
-main().catch(console.error);
+main().catch(e => { console.error(e); process.exit(1); });
