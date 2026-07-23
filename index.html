@@ -141,8 +141,22 @@
     <div class="card" id="chat-card">
       <h2 data-i18n="chat_title">AI Coach (OpenRouter)</h2>
       <div style="margin-bottom: 10px; font-size: 11px; color: var(--dim);">
-        <label><span data-i18n="api_key">API Key:</span> <input type="password" id="api-key" placeholder="sk-or-v1-..." style="width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--txt); margin-top: 4px;"></label>
-      </div>
+      <label style="display:block; margin-bottom:6px;"><span data-i18n="api_key">API Key:</span> <input type="password" id="api-key" placeholder="sk-or-v1-..." style="width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--txt); margin-top: 4px;"></label>
+      <label style="display:block;"><span data-i18n="model">Model:</span> 
+        <select id="chat-model" style="width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--txt); margin-top: 4px; font-family: inherit;">
+          <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+          <option value="anthropic/claude-sonnet-5">Claude Sonnet 5</option>
+          <option value="anthropic/claude-opus-4.8">Claude Opus 4.8</option>
+          <option value="openai/gpt-4o">GPT-4o</option>
+          <option value="openai/gpt-5-omni">GPT-5 Omni</option>
+          <option value="meta-llama/llama-4-maverick">Llama 4 Maverick</option>
+          <option value="google/gemini-3.6-flash">Gemini 3.6 Flash</option>
+          <option value="mistralai/mixtral-8x22b-instruct">Mixtral 8x22b</option>
+          <option value="poolside/laguna-s-2.1">Laguna S 2.1</option>
+          <option value="openrouter/auto">OpenRouter Auto (Best Available)</option>
+        </select>
+      </label>
+    </div>
       <div id="chat-history" style="max-height: 200px; overflow-y: auto; margin-bottom: 10px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; line-height: 1.4;"></div>
       <div style="display: flex; gap: 6px;">
         <input type="text" id="chat-input" data-placeholder-i18n="chat_placeholder" placeholder="Ask about your run..." style="flex: 1; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--txt);">
@@ -643,6 +657,12 @@ const chatHistory = document.getElementById("chat-history");
 apiKeyInput.value = localStorage.getItem("openrouter_key") || "";
 apiKeyInput.addEventListener("change", () => localStorage.setItem("openrouter_key", apiKeyInput.value));
 
+const modelSelect = document.getElementById("chat-model");
+if (modelSelect) {
+  modelSelect.value = localStorage.getItem("openrouter_model") || "anthropic/claude-3.5-sonnet";
+  modelSelect.addEventListener("change", () => localStorage.setItem("openrouter_model", modelSelect.value));
+}
+
 let conversation = [];
 
 async function sendChat() {
@@ -677,7 +697,7 @@ Provide concise, actionable insights and answer the user's questions.`
         "X-Title": "Trail Run Dashboard"
       },
       body: JSON.stringify({
-        model: modelSelect.value,
+        model: document.getElementById("chat-model").value,
         messages: conversation
       })
     });
