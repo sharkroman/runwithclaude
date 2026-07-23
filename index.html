@@ -174,7 +174,7 @@ const I18N = {
     finish_det: "Back near the trailhead. A steady out-and-back climb.",
     source: "Source: Strava activity",
     footer_text: "Streams fetched at high resolution via a Make scenario writing to GitHub.<br>Contours are synthesized from track altitude via IDW interpolation (10 m interval); route color = heart rate (green ≤145 → red ≥175 bpm).",
-    chat_title: "AI Coach (OpenRouter)", api_key: "API Key:", chat_placeholder: "Ask about your run...", send: "Send",
+    chat_title: "AI Coach (OpenRouter)", api_key: "API Key:", model: "Model:", chat_placeholder: "Ask about your run...", send: "Send",
     select_run: "-- Select a previous run --"
   },
   zh: {
@@ -195,7 +195,7 @@ const I18N = {
     finish_det: "回到起点附近。一次稳定的折返爬升训练。",
     source: "数据来源: Strava 活动",
     footer_text: "通过 Make 自动化获取高精度轨迹数据并写入 GitHub。<br>等高线通过海拔数据反向插值生成 (10米等高距)；轨迹颜色 = 心率 (绿色 ≤145 → 红色 ≥175 bpm)。",
-    chat_title: "AI 教练 (OpenRouter)", api_key: "API 密钥:", chat_placeholder: "询问关于这次跑步的建议...", send: "发送",
+    chat_title: "AI 教练 (OpenRouter)", api_key: "API 密钥:", model: "模型:", chat_placeholder: "询问关于这次跑步的建议...", send: "发送",
     select_run: "-- 选择历史记录 --"
   }
 };
@@ -677,7 +677,7 @@ Provide concise, actionable insights and answer the user's questions.`
         "X-Title": "Trail Run Dashboard"
       },
       body: JSON.stringify({
-        model: "anthropic/claude-3.5-sonnet", // Can be used through openrouter
+        model: modelSelect.value,
         messages: conversation
       })
     });
