@@ -102,28 +102,35 @@ ${wpData}
 
 Write exactly 7 short coaching observations (one for each moment). Each observation should be 1-2 sentences. Do NOT include bullet points, numbering, or labels. Separate each observation with the exact string "|||". Make it bilingual (English first, then Chinese translation in the same block). Provide ONLY the 7 blocks separated by "|||".`;
 
-  try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${openRouterKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "anthropic/claude-3.5-sonnet",
-        messages: [{ role: "user", content: prompt }]
-      })
-    });
-    if(!res.ok) return null;
-    const j = await res.json();
-    const reply = j.choices[0].message.content;
-    const tips = reply.split("|||").map(s => s.trim()).filter(s => s.length > 0);
-    if(tips.length === 7) return tips;
-    return null;
-  } catch(e) {
-    console.error("AI Tips failed:", e);
-    return null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${openRouterKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "anthropic/claude-3.5-sonnet",
+          messages: [{ role: "user", content: prompt }]
+        })
+      });
+      if (!res.ok) {
+        const errBody = await res.text();
+        console.error(`AI Tips HTTP ${res.status} (attempt ${attempt}): ${errBody.slice(0, 300)}`);
+      } else {
+        const j = await res.json();
+        const reply = j.choices[0].message.content;
+        const tips = reply.split("|||").map(s => s.trim()).filter(s => s.length > 0);
+        if (tips.length === 7) return tips;
+        console.error(`AI Tips bad block count ${tips.length} (attempt ${attempt}): ${String(reply).slice(0, 200)}`);
+      }
+    } catch(e) {
+      console.error(`AI Tips fetch error (attempt ${attempt}):`, e && e.message ? e.message : e);
+    }
+    if (attempt < 2) await new Promise(r => setTimeout(r, 1500));
   }
+  return null;
 }
 
 function buildRun(activity, streams) {
