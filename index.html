@@ -41,6 +41,21 @@
     border-color: var(--txt) transparent transparent transparent;
   }
 
+  #profile-container { position: relative; }
+  #profile-tooltip {
+    position: absolute; display: none; pointer-events: none;
+    background: var(--txt); color: #fff; padding: 5px 10px;
+    border-radius: 6px; font-size: 12px; font-weight: 600;
+    transform: translate(-50%, -100%); margin-top: -12px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15); z-index: 10;
+    white-space: nowrap; font-family: ui-monospace,SFMono-Regular,monospace;
+  }
+  #profile-tooltip::after {
+    content: ""; position: absolute; top: 100%; left: 50%;
+    margin-left: -5px; border-width: 5px; border-style: solid;
+    border-color: var(--txt) transparent transparent transparent;
+  }
+
   .ann{display:flex;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;
        padding:10px 12px;margin-top:8px;transition:border-color .3s}
   .ann.flash{border-color:var(--amber)}
@@ -91,7 +106,7 @@
     <div class="card">
       <h2 data-i18n="route">Route · HR-scaled track on synthesized contours (10 m)</h2>
       <div id="map-container">
-        <svg id="map" role="img" aria-label="Contour map with heart-rate colored route"></svg>
+        <svg id="map" role="img" aria-label="Contour map with heart-rate colored route" style="touch-action:none;"></svg>
         <div id="map-tooltip"></div>
       </div>
     </div>
@@ -100,7 +115,10 @@
 
     <div class="card">
       <h2 data-i18n="elev_hr">Elevation &amp; heart rate</h2>
-      <svg id="profile" viewBox="0 0 360 150" role="img" aria-label="Elevation and heart rate profile"></svg>
+      <div id="profile-container">
+        <svg id="profile" viewBox="0 0 360 150" role="img" aria-label="Elevation and heart rate profile" style="touch-action:none;"></svg>
+        <div id="profile-tooltip"></div>
+      </div>
       <div style="display:flex;gap:14px;margin-top:6px;font-size:10.5px;color:var(--dim)">
         <span><span style="color:var(--dim)">■</span> <span data-i18n="elevation">elevation</span></span>
         <span><span style="color:var(--amber)">■</span> <span data-i18n="heart_rate">heart rate</span></span>
