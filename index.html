@@ -6,16 +6,17 @@
 <title>Trail Run Dashboard</title>
 <style>
   :root{
-    --bg:#0b0e13; --panel:#12161d; --panel2:#161b24; --line:#1e2632;
-    --txt:#e6edf3; --dim:#8b98a9; --faint:#5b6773;
-    --green:#2ecc71; --amber:#f1c40f; --red:#ff5c5c; --blue:#58a6ff;
+    /* Claude Light Theme Palette */
+    --bg:#F9F8F6; --panel:#FFFFFF; --panel2:#F3F1EC; --line:#E5E1D8;
+    --txt:#1A1A1A; --dim:#666666; --faint:#888888;
+    --green:#2E8540; --amber:#D97757; --red:#C23B22; --blue:#3B71CA;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#05070a;color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-       display:flex;justify-content:center}
-  .app{width:100%;max-width:430px;background:var(--bg);min-height:100vh;padding:14px 14px 28px}
+  body{background:#EAE8E3;color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       display:flex;justify-content:center;position:relative;}
+  .app{width:100%;max-width:430px;background:var(--bg);min-height:100vh;padding:14px 14px 28px;position:relative;}
   .mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-  header{padding:6px 2px 12px}
+  header{padding:6px 2px 12px; padding-right:60px;} /* leave space for lang toggle */
   h1{font-size:20px;font-weight:700;letter-spacing:.2px}
   h1 .quote{color:var(--dim);font-weight:500}
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
@@ -23,15 +24,31 @@
         border-radius:999px;padding:3px 9px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-top:12px}
   .card h2{font-size:12px;text-transform:uppercase;letter-spacing:1.2px;color:var(--faint);margin-bottom:10px}
-  svg{display:block;width:100%;height:auto}
+  svg{display:block;width:100%;height:auto;touch-action:none;}
+  
+  #map-container { position: relative; }
+  #map-tooltip {
+    position: absolute; display: none; pointer-events: none;
+    background: var(--txt); color: #fff; padding: 5px 10px;
+    border-radius: 6px; font-size: 12px; font-weight: 600;
+    transform: translate(-50%, -100%); margin-top: -12px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15); z-index: 10;
+    white-space: nowrap; font-family: ui-monospace,SFMono-Regular,monospace;
+  }
+  #map-tooltip::after {
+    content: ""; position: absolute; top: 100%; left: 50%;
+    margin-left: -5px; border-width: 5px; border-style: solid;
+    border-color: var(--txt) transparent transparent transparent;
+  }
+
   .ann{display:flex;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;
        padding:10px 12px;margin-top:8px;transition:border-color .3s}
-  .ann.flash{border-color:var(--txt)}
+  .ann.flash{border-color:var(--amber)}
   .ann .n{flex:0 0 24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-          font-size:12px;font-weight:800;color:#0b0e13;margin-top:2px}
+          font-size:12px;font-weight:800;color:#ffffff;margin-top:2px}
   .ann .t{font-size:13px;font-weight:700}
   .ann .m{font-size:11px;color:var(--dim);margin-top:1px}
-  .ann .d{font-size:12px;color:#c3ccd8;line-height:1.45;margin-top:5px}
+  .ann .d{font-size:12px;color:var(--dim);line-height:1.45;margin-top:5px}
   .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
   .stat{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 6px;text-align:center}
   .stat .v{font-size:15px;font-weight:700}
@@ -43,11 +60,28 @@
   .zrow .zp{width:38px;text-align:right;font-size:11px;color:var(--dim)}
   footer{margin-top:16px;font-size:10.5px;color:var(--faint);line-height:1.6;padding:0 2px}
   #status{padding:40px 12px;text-align:center;color:var(--dim);font-size:13px}
+
+  .lang-toggle {
+    position: absolute; top: 14px; right: 14px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px; padding: 2px; display: flex; gap: 2px;
+  }
+  .lang-btn {
+    border: none; background: transparent; color: var(--dim);
+    font-size: 11px; padding: 4px 8px; border-radius: 4px; cursor: pointer;
+    font-weight: 600;
+  }
+  .lang-btn.active { background: var(--txt); color: #fff; }
 </style>
 </head>
 <body>
 <div class="app">
-  <div id="status">Loading run…</div>
+  <div class="lang-toggle">
+    <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+    <button class="lang-btn" id="btn-zh" onclick="setLang('zh')">ZH</button>
+  </div>
+
+  <div id="status" data-i18n="loading">Loading run…</div>
   <div id="content" style="display:none">
     <header>
       <h1><span class="quote">“</span><span id="title"></span><span class="quote">”</span></h1>
@@ -55,29 +89,32 @@
     </header>
 
     <div class="card">
-      <h2>Route · HR-scaled track on synthesized contours (10 m)</h2>
-      <svg id="map" role="img" aria-label="Contour map with heart-rate colored route"></svg>
+      <h2 data-i18n="route">Route · HR-scaled track on synthesized contours (10 m)</h2>
+      <div id="map-container">
+        <svg id="map" role="img" aria-label="Contour map with heart-rate colored route"></svg>
+        <div id="map-tooltip"></div>
+      </div>
     </div>
 
     <div id="annotations"></div>
 
     <div class="card">
-      <h2>Elevation &amp; heart rate</h2>
+      <h2 data-i18n="elev_hr">Elevation &amp; heart rate</h2>
       <svg id="profile" viewBox="0 0 360 150" role="img" aria-label="Elevation and heart rate profile"></svg>
       <div style="display:flex;gap:14px;margin-top:6px;font-size:10.5px;color:var(--dim)">
-        <span><span style="color:#7d8ea3">■</span> elevation</span>
-        <span><span style="color:#e67e22">■</span> heart rate</span>
-        <span style="margin-left:auto">dots = coaching pins</span>
+        <span><span style="color:var(--dim)">■</span> <span data-i18n="elevation">elevation</span></span>
+        <span><span style="color:var(--amber)">■</span> <span data-i18n="heart_rate">heart rate</span></span>
+        <span style="margin-left:auto" data-i18n="pins">dots = coaching pins</span>
       </div>
     </div>
 
     <div class="card">
-      <h2>Summary</h2>
+      <h2 data-i18n="summary">Summary</h2>
       <div class="grid mono" id="summary"></div>
     </div>
 
     <div class="card">
-      <h2>Time in HR zone</h2>
+      <h2 data-i18n="zones">Time in HR zone</h2>
       <div id="zones"></div>
     </div>
 
@@ -86,11 +123,64 @@
 </div>
 
 <script>
+const I18N = {
+  en: {
+    loading: "Loading run…", error: "Could not load run",
+    route: "Route · HR-scaled track on synthesized contours (10 m)",
+    elev_hr: "Elevation & heart rate", summary: "Summary", zones: "Time in HR zone",
+    elevation: "elevation", heart_rate: "heart rate", pins: "dots = coaching pins",
+    start: "START", effort: "EFFORT BUILDS", mid: "MID CLIMB", summit: "SUMMIT",
+    drop: "STEEP DROP", fade: "LEGS FADING", finish: "FINISH",
+    km: "km", moving: "moving", pace: "/km", elev_m: "elev m",
+    avg_hr: "avg hr", max_hr: "max hr", kcal: "kcal", points: "points",
+    start_det: "Start of the effort. Watch how quickly the gradient and heart rate ramp in the opening stretch.",
+    effort_det: "Heart rate climbing early. Settle the pace here so the effort stays controlled through the main climb.",
+    mid_det: "Roughly midway up the climb. Hold this line — control usually breaks near the top.",
+    summit_det: "m of gain behind you, top of the loop. From here it's the descent — its own kind of hard.",
+    drop_det: "Sharpest downhill of the run. Peak eccentric quad load — shorten stride, lift cadence, don't brake hard.",
+    fade_det: "Pace bleeds back as the descent flattens and fatigue lands. Keep turnover up through the final rollers.",
+    finish_det: "Back near the trailhead. A steady out-and-back climb.",
+    source: "Source: Strava activity",
+    footer_text: "Streams fetched at high resolution via a Make scenario writing to GitHub.<br>Contours are synthesized from track altitude via IDW interpolation (10 m interval); route color = heart rate (green ≤145 → red ≥175 bpm)."
+  },
+  zh: {
+    loading: "正在加载数据…", error: "无法加载数据",
+    route: "路线 · 基于心率着色的等高线轨迹 (10米)",
+    elev_hr: "海拔与心率曲线", summary: "数据摘要", zones: "心率区间时长",
+    elevation: "海拔", heart_rate: "心率", pins: "圆点 = 关键分析点",
+    start: "起点", effort: "发力期", mid: "半坡", summit: "顶峰",
+    drop: "陡降", fade: "后半程掉速", finish: "终点",
+    km: "公里", moving: "移动时间", pace: "配速", elev_m: "累计爬升",
+    avg_hr: "平均心率", max_hr: "最大心率", kcal: "卡路里", points: "数据点",
+    start_det: "发力开始。注意在起步阶段坡度和心率是如何迅速攀升的。",
+    effort_det: "心率过早攀升。在这里稳住配速，以便在主爬升段保持控制。",
+    mid_det: "大约在爬升的中段。保持这个节奏——通常在接近顶部时容易崩溃。",
+    summit_det: "米爬升已在身后，环线的最高点。从这里开始是下坡——另一种艰难。",
+    drop_det: "最陡的下坡。股四头肌离心负荷达到顶峰——缩短步幅，提高步频，不要猛踩刹车。",
+    fade_det: "随着下坡变缓和疲劳袭来，配速开始下降。在最后的起伏路段保持步频。",
+    finish_det: "回到起点附近。一次稳定的折返爬升训练。",
+    source: "数据来源: Strava 活动",
+    footer_text: "通过 Make 自动化获取高精度轨迹数据并写入 GitHub。<br>等高线通过海拔数据反向插值生成 (10米等高距)；轨迹颜色 = 心率 (绿色 ≤145 → 红色 ≥175 bpm)。"
+  }
+};
+
+let LANG = localStorage.getItem("lang") || "zh";
+function t(key) { return I18N[LANG][key] || key; }
+function setLang(l) {
+  LANG = l; localStorage.setItem("lang", l);
+  document.getElementById("btn-en").className = "lang-btn" + (l==="en"?" active":"");
+  document.getElementById("btn-zh").className = "lang-btn" + (l==="zh"?" active":"");
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    el.innerHTML = t(el.getAttribute("data-i18n"));
+  });
+  if(D) { renderMeta(); renderAnnotations(); renderZones(); }
+}
+
 const DEFAULT_ID = "19414064627";
 const qs = new URLSearchParams(location.search);
 const RUN_ID = qs.get("id") || DEFAULT_ID;
 
-const TCOLOR = {neutral:"#58a6ff", target:"#2ecc71", warning:"#f1c40f", critical:"#ff5c5c"};
+const TCOLOR = {neutral:"#3B71CA", target:"#2E8540", warning:"#D97757", critical:"#C23B22"};
 
 let D, WAY;
 let latMin,latMax,lngMin,lngMax,KX,KY,W,H,PAD,PW,PH,N,RX,RY;
@@ -118,34 +208,38 @@ function buildWaypoints(){
   for(let i=sIdx;i<n;i++){ if(D.grade[i]<steepG){steepG=D.grade[i];steepIdx=i;} }
   const q8 = Math.max(1, Math.round(n*0.08));
   const fade = Math.round(sIdx + (n-1-sIdx)*0.85);
-  const kmAt = i => (D.dist[i]/1000).toFixed(2);
   const gain = Math.round(Math.max(...D.alt) - D.alt[0]);
+  
   WAY = [
-    {idx:0, type:"neutral", title:"START", sub:`${Math.round(D.alt[0])} m · HR ${D.hr[0]}`,
-     detail:"Start of the effort. Watch how quickly the gradient and heart rate ramp in the opening stretch."},
-    {idx:q8, type:"warning", title:"EFFORT BUILDS", sub:`${kmAt(q8)} km · HR ${D.hr[q8]}`,
-     detail:"Heart rate climbing early. Settle the pace here so the effort stays controlled through the main climb."},
-    {idx:climbMid, type:"target", title:"MID CLIMB", sub:`${kmAt(climbMid)} km · HR ${D.hr[climbMid]}`,
-     detail:"Roughly midway up the climb. Hold this line — control usually breaks near the top."},
-    {idx:sIdx, type:"neutral", title:"SUMMIT", sub:`${kmAt(sIdx)} km · ${Math.round(sAlt)} m turnaround`,
-     detail:`+${gain} m of gain behind you, top of the loop. From here it's the descent — its own kind of hard.`},
-    {idx:steepIdx, type:"critical", title:"STEEP DROP", sub:`${kmAt(steepIdx)} km · ${D.grade[steepIdx]}% descent`,
-     detail:"Sharpest downhill of the run. Peak eccentric quad load — shorten stride, lift cadence, don't brake hard."},
-    {idx:fade, type:"warning", title:"LEGS FADING", sub:`${kmAt(fade)} km · easing off`,
-     detail:"Pace bleeds back as the descent flattens and fatigue lands. Keep turnover up through the final rollers."},
-    {idx:n-1, type:"neutral", title:"FINISH", sub:`${kmAt(n-1)} km · ${D.meta.moving||""}`,
-     detail:`Back near the trailhead. ${D.meta.distance_km} km, +${D.meta.elev_gain_m} m, avg HR ${D.meta.avg_hr}. A steady out-and-back climb.`}
+    {idx:0, type:"neutral", tKey:"start", dKey:"start_det", altStr:Math.round(D.alt[0])},
+    {idx:q8, type:"warning", tKey:"effort", dKey:"effort_det"},
+    {idx:climbMid, type:"target", tKey:"mid", dKey:"mid_det"},
+    {idx:sIdx, type:"neutral", tKey:"summit", dKey:"summit_det", gain:gain, altStr:Math.round(sAlt)},
+    {idx:steepIdx, type:"critical", tKey:"drop", dKey:"drop_det"},
+    {idx:fade, type:"warning", tKey:"fade", dKey:"fade_det"},
+    {idx:n-1, type:"neutral", tKey:"finish", dKey:"finish_det"}
   ];
 }
 
 function hrColor(hr){
-  const t = Math.max(0, Math.min(1, (hr-145)/30));
-  return `hsl(${Math.round(135*(1-t))},72%,48%)`;
+  const t_val = Math.max(0, Math.min(1, (hr-145)/30));
+  // Claude palette transition: green -> amber -> red
+  // Green: 46,133,64. Amber: 217,119,87. Red: 194,59,34
+  if (t_val < 0.5) {
+    const f = t_val * 2;
+    const r = Math.round(46 + f*(217-46)), g = Math.round(133 + f*(119-133)), b = Math.round(64 + f*(87-64));
+    return `rgb(${r},${g},${b})`;
+  } else {
+    const f = (t_val - 0.5) * 2;
+    const r = Math.round(217 + f*(194-217)), g = Math.round(119 + f*(59-119)), b = Math.round(87 + f*(34-87));
+    return `rgb(${r},${g},${b})`;
+  }
 }
+
 function paceStr(v){
   if(!v || v<0.3) return "—";
   const s = 1000/v, m = Math.floor(s/60), ss = Math.round(s%60);
-  return `${m}:${String(ss).padStart(2,"0")}/km`;
+  return `${m}:${String(ss).padStart(2,"0")}`;
 }
 
 function buildField(){
@@ -155,7 +249,7 @@ function buildField(){
     for(let i=0;i<nx;i++){
       const x=-PAD+i*dx, y=-PAD+j*dy;
       let num=0, den=0;
-      for(let k=0;k<N;k++){
+      for(let k=0;k<N;k+=3){ // optimization step
         const ddx=x-RX[k], ddy=y-RY[k], d2=ddx*ddx+ddy*ddy;
         const w=1/Math.pow(d2+4,1.25);
         num+=w*D.alt[k]; den+=w;
@@ -207,6 +301,7 @@ function contourSegs(g,nx,ny,dx,dy,level){
 
 function renderMap(){
   const svg = document.getElementById("map");
+  svg.innerHTML=""; // clear previous
   svg.setAttribute("viewBox",`0 0 ${PW} ${PH}`);
   const ns = "http://www.w3.org/2000/svg";
   const el = (t,at)=>{const e=document.createElementNS(ns,t);for(const k in at)e.setAttribute(k,at[k]);return e;};
@@ -214,7 +309,6 @@ function renderMap(){
   const {g,nx,ny,dx,dy} = buildField();
   const altMin=Math.min(...D.alt), altMax=Math.max(...D.alt);
   const loLevel = Math.floor(altMin/10)*10, hiLevel = Math.ceil(altMax/10)*10;
-  const midLevel = Math.round((loLevel+hiLevel)/20)*10;
   const gCont = el("g",{transform:`translate(${PAD},${PAD})`,fill:"none"});
   for(let L=loLevel;L<=hiLevel;L+=10){
     const idx = (L%50===0);
@@ -226,24 +320,24 @@ function renderMap(){
       const len=Math.hypot(q[0]-p[0],q[1]-p[1]);
       if(len>bestLen){bestLen=len;best=[p,q];}
     }
-    gCont.appendChild(el("path",{d:dstr,stroke:idx?"#3d4a5e":"#242e3c",
+    gCont.appendChild(el("path",{d:dstr,stroke:idx?"#D3CEC4":"#EAE8E3",
       "stroke-width":idx?3.2:2.2,"stroke-linecap":"round"}));
     if(idx&&best){
       const [p,q]=best, mx=(p[0]+q[0])/2, my=(p[1]+q[1])/2;
       const ang=Math.atan2(q[1]-p[1],q[0]-p[0])*180/Math.PI;
-      const t=el("text",{x:mx,y:my,transform:`rotate(${ang} ${mx} ${my})`,
-        "font-size":30,fill:"#7d8ea3","text-anchor":"middle",
-        "paint-order":"stroke",stroke:"#0b0e13","stroke-width":8});
-      t.textContent=`${L} m`;
-      gCont.appendChild(t);
+      const tx=el("text",{x:mx,y:my,transform:`rotate(${ang} ${mx} ${my})`,
+        "font-size":30,fill:"#A39E93","text-anchor":"middle",
+        "paint-order":"stroke",stroke:"#F9F8F6","stroke-width":8});
+      tx.textContent=`${L} m`;
+      gCont.appendChild(tx);
     }
   }
   svg.appendChild(gCont);
 
   let under="";
   for(let i=0;i<N;i++) under+=`${i?"L":"M"}${(RX[i]+PAD).toFixed(1)} ${(RY[i]+PAD).toFixed(1)}`;
-  svg.appendChild(el("path",{d:under,fill:"none",stroke:"#000","stroke-width":22,
-    opacity:.55,"stroke-linecap":"round","stroke-linejoin":"round"}));
+  svg.appendChild(el("path",{d:under,fill:"none",stroke:"#1A1A1A","stroke-width":22,
+    opacity:.2,"stroke-linecap":"round","stroke-linejoin":"round"}));
 
   for(let i=0;i<N-1;i++){
     const hr=(D.hr[i]+D.hr[i+1])/2;
@@ -255,10 +349,10 @@ function renderMap(){
   WAY.forEach((w,k)=>{
     const x=RX[w.idx]+PAD, y=RY[w.idx]+PAD, c=TCOLOR[w.type];
     const gMark=el("g",{cursor:"pointer"});
-    gMark.appendChild(el("circle",{cx:x,cy:y,r:17,fill:c,stroke:"#0b0e13","stroke-width":5}));
-    const t=el("text",{x:x,y:y+7,"font-size":24,"font-weight":800,fill:"#0b0e13","text-anchor":"middle"});
-    t.textContent=k+1;
-    gMark.appendChild(t);
+    gMark.appendChild(el("circle",{cx:x,cy:y,r:17,fill:c,stroke:"#FFFFFF","stroke-width":5}));
+    const tx=el("text",{x:x,y:y+7,"font-size":24,"font-weight":800,fill:"#FFFFFF","text-anchor":"middle"});
+    tx.textContent=k+1;
+    gMark.appendChild(tx);
     gMark.addEventListener("click",()=>{
       const card=document.getElementById("ann"+(k+1));
       card.scrollIntoView({behavior:"smooth",block:"center"});
@@ -267,21 +361,77 @@ function renderMap(){
     });
     svg.appendChild(gMark);
   });
+  
+  // Interactive Hover
+  const tooltip = document.getElementById("map-tooltip");
+  const container = document.getElementById("map-container");
+  
+  function handlePointer(e) {
+    if (!N) return;
+    const rect = svg.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const scaleX = PW / rect.width;
+    const scaleY = PH / rect.height;
+    const svgX = x * scaleX;
+    const svgY = y * scaleY;
+    
+    // Find closest point
+    let minDist = Infinity, bestIdx = 0;
+    for(let i=0;i<N;i+=2) { // step by 2 for performance
+      const dx = (RX[i]+PAD) - svgX;
+      const dy = (RY[i]+PAD) - svgY;
+      const d2 = dx*dx + dy*dy;
+      if(d2 < minDist) { minDist = d2; bestIdx = i; }
+    }
+    
+    // If hover is close enough to the track (within ~30 pixels visually)
+    if(minDist < 4000) { // arbitrary threshold in SVG space
+      const px = (RX[bestIdx]+PAD) / scaleX;
+      const py = (RY[bestIdx]+PAD) / scaleY;
+      tooltip.style.left = px + "px";
+      tooltip.style.top = py + "px";
+      tooltip.innerHTML = `HR ${D.hr[bestIdx]} <span style="color:#A39E93;margin:0 4px">|</span> ${paceStr(D.vel[bestIdx])}${t('pace')}`;
+      tooltip.style.display = "block";
+    } else {
+      tooltip.style.display = "none";
+    }
+  }
+  
+  container.addEventListener("mousemove", handlePointer);
+  container.addEventListener("touchmove", (e) => {
+    // Only prevent default if we are actually hovering over the track (so we can still scroll the page elsewhere)
+    if(tooltip.style.display === "block") e.preventDefault();
+    handlePointer(e.touches[0]);
+  }, {passive: false});
+  container.addEventListener("mouseleave", () => tooltip.style.display="none");
+  container.addEventListener("touchend", () => tooltip.style.display="none");
 }
 
 function renderAnnotations(){
   const wrap=document.getElementById("annotations");
   wrap.innerHTML="";
+  const kmAt = i => (D.dist[i]/1000).toFixed(2);
   WAY.forEach((w,k)=>{
     const i=w.idx, c=TCOLOR[w.type];
     const div=document.createElement("div");
     div.className="ann"; div.id="ann"+(k+1);
+    
+    let subText = "";
+    if (w.tKey==="start") subText = `${w.altStr} m`;
+    else if (w.tKey==="summit") subText = `${kmAt(i)} ${t('km')} · ${w.altStr} m`;
+    else if (w.tKey==="drop") subText = `${kmAt(i)} ${t('km')} · grade ${D.grade[i]}%`;
+    else subText = `${kmAt(i)} ${t('km')}`;
+    
+    let detailText = t(w.dKey);
+    if(w.tKey==="summit") detailText = `+${w.gain} ` + detailText;
+    
     div.innerHTML=
       `<div class="n" style="background:${c}">${k+1}</div>
        <div>
-         <div class="t" style="color:${c}">${w.title}</div>
-         <div class="m mono">${w.sub} · HR ${D.hr[i]} · ${paceStr(D.vel[i])} · grade ${D.grade[i]}% · ${(D.dist[i]/1000).toFixed(2)} km</div>
-         <div class="d">${w.detail}</div>
+         <div class="t" style="color:${c}">${t(w.tKey)}</div>
+         <div class="m mono">${subText} · HR ${D.hr[i]} · ${paceStr(D.vel[i])}${t('pace')}</div>
+         <div class="d">${detailText}</div>
        </div>`;
     wrap.appendChild(div);
   });
@@ -303,18 +453,18 @@ function renderProfile(){
   const yH=h=>mt+ph-(h-hLo)/(hHi-hLo)*ph;
 
   [aLo,Math.round((aLo+aHi)/2),aHi].forEach(v=>{
-    svg.appendChild(el("line",{x1:ml,x2:360-mr,y1:yA(v),y2:yA(v),stroke:"#1e2632","stroke-width":1}));
-    const t=el("text",{x:4,y:yA(v)+3,"font-size":9,fill:"#5b6773"});
-    t.textContent=v; svg.appendChild(t);
+    svg.appendChild(el("line",{x1:ml,x2:360-mr,y1:yA(v),y2:yA(v),stroke:"var(--line)","stroke-width":1}));
+    const tx=el("text",{x:4,y:yA(v)+3,"font-size":9,fill:"var(--dim)"});
+    tx.textContent=v; svg.appendChild(tx);
   });
 
   let area=`M${x(0)} ${yA(D.alt[0])}`;
   for(let i=1;i<N;i++) area+=`L${x(D.dist[i])} ${yA(D.alt[i])}`;
   area+=`L${x(dMax)} ${yA(aLo)}L${x(0)} ${yA(aLo)}Z`;
-  svg.appendChild(el("path",{d:area,fill:"#7d8ea3",opacity:.22}));
+  svg.appendChild(el("path",{d:area,fill:"var(--line)",opacity:.5}));
   let ridge=`M${x(0)} ${yA(D.alt[0])}`;
   for(let i=1;i<N;i++) ridge+=`L${x(D.dist[i])} ${yA(D.alt[i])}`;
-  svg.appendChild(el("path",{d:ridge,fill:"none",stroke:"#7d8ea3","stroke-width":1.5}));
+  svg.appendChild(el("path",{d:ridge,fill:"none",stroke:"var(--dim)","stroke-width":1.5}));
 
   for(let i=0;i<N-1;i++){
     svg.appendChild(el("line",{
@@ -324,19 +474,19 @@ function renderProfile(){
 
   WAY.forEach((w)=>{
     svg.appendChild(el("circle",{cx:x(D.dist[w.idx]),cy:yA(D.alt[w.idx]),r:3.4,
-      fill:TCOLOR[w.type],stroke:"#0b0e13","stroke-width":1.2}));
+      fill:TCOLOR[w.type],stroke:"#FFFFFF","stroke-width":1.2}));
   });
 
   const kmMax=Math.floor(dMax/1000);
-  for(let km=0;km<=kmMax;km++){
-    const t=el("text",{x:x(km*1000),y:146,"font-size":9,fill:"#5b6773","text-anchor":"middle"});
-    t.textContent=km+" km"; svg.appendChild(t);
+  for(let kmm=0;kmm<=kmMax;kmm++){
+    const tx=el("text",{x:x(kmm*1000),y:146,"font-size":9,fill:"var(--dim)","text-anchor":"middle"});
+    tx.textContent=kmm; svg.appendChild(tx);
   }
 }
 
 function renderZones(){
-  const zs=[[0,121,"Z1","#58a6ff"],[122,151,"Z2","#2ecc71"],[152,166,"Z3","#f1c40f"],
-            [167,180,"Z4","#e67e22"],[181,999,"Z5","#ff5c5c"]];
+  const zs=[[0,121,"Z1","#3B71CA"],[122,151,"Z2","#2E8540"],[152,166,"Z3","#D97757"],
+            [167,180,"Z4","#C23B22"],[181,999,"Z5","#882211"]];
   const counts=zs.map(()=>0);
   D.hr.forEach(h=>{for(let z=0;z<5;z++)if(h>=zs[z][0]&&h<=zs[z][1]){counts[z]++;break;}});
   const wrap=document.getElementById("zones");
@@ -355,17 +505,17 @@ function renderZones(){
 function renderMeta(){
   const m=D.meta;
   document.getElementById("title").textContent = m.name || "Run";
-  document.title = (m.name||"Run") + " · Trail Run Dashboard";
+  document.title = (m.name||"Run") + " · " + t('title');
   const chips=document.getElementById("chips");
   chips.innerHTML="";
-  const addChip=t=>{const s=document.createElement("span");s.className="chip";s.textContent=t;chips.appendChild(s);};
+  const addChip=tx=>{const s=document.createElement("span");s.className="chip";s.textContent=tx;chips.appendChild(s);};
   if(m.sport||m.date) addChip(`${m.sport||"Run"}${m.date?" · "+m.date:""}`);
-  if(m.distance_km!=null) addChip(`${m.distance_km} km · +${m.elev_gain_m} m`);
+  if(m.distance_km!=null) addChip(`${m.distance_km} ${t('km')} · +${m.elev_gain_m} m`);
   addChip(`${latMin.toFixed(2)}°N`);
 
   const stats=[
-    [m.distance_km,"km"],[m.moving,"moving"],[m.pace,"/km"],[m.elev_gain_m,"elev m"],
-    [m.avg_hr,"avg hr"],[m.max_hr,"max hr"],[m.calories,"kcal"],[N,"points"]
+    [m.distance_km, t('km')],[m.moving, t('moving')],[m.pace, t('pace')],[m.elev_gain_m, t('elev_m')],
+    [m.avg_hr, t('avg_hr')],[m.max_hr, t('max_hr')],[m.calories, t('kcal')],[N, t('points')]
   ];
   const sum=document.getElementById("summary");
   sum.innerHTML="";
@@ -377,10 +527,8 @@ function renderMeta(){
   });
 
   document.getElementById("footer").innerHTML =
-    `Source: Strava activity ${m.id} “${m.name||""}” · ${m.distance_km} km${m.date?" · "+m.date:""}. `+
-    `Streams fetched at high resolution (${N} pts) via a Make scenario writing to GitHub.<br>`+
-    `Contours are synthesized from track altitude via IDW interpolation (10 m interval); route color = heart rate `+
-    `(green ≤145 → red ≥175 bpm).`;
+    `${t('source')} ${m.id} “${m.name||""}” · ${m.distance_km} ${t('km')}${m.date?" · "+m.date:""}.<br><br>`+
+    t('footer_text');
 }
 
 function boot(data){
@@ -400,11 +548,9 @@ function boot(data){
   buildWaypoints();
   document.getElementById("status").style.display="none";
   document.getElementById("content").style.display="block";
-  renderMeta();
+  setLang(LANG); // Initial translation
   renderMap();
-  renderAnnotations();
   renderProfile();
-  renderZones();
 }
 
 fetch(`runs/${RUN_ID}.json`, {cache:"no-cache"})
@@ -412,8 +558,9 @@ fetch(`runs/${RUN_ID}.json`, {cache:"no-cache"})
   .then(boot)
   .catch(err=>{
     document.getElementById("status").innerHTML =
-      `Could not load run <b>${RUN_ID}</b>.<br><span style="font-size:11px;color:#5b6773">${err.message}</span>`;
+      `${t('error')} <b>${RUN_ID}</b>.<br><span style="font-size:11px;color:var(--dim)">${err.message}</span>`;
   });
+setLang(LANG); // Set lang early for the Loading message
 </script>
 </body>
 </html>
