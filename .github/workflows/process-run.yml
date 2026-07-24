@@ -1,19 +1,26 @@
 name: Process Strava Run
+
 on:
   repository_dispatch:
     types: [new_strava_run]
   workflow_dispatch:
     inputs:
       activity_id:
-        description: 'Specific Strava Activity ID (optional)'
+        description: 'Activity ID, or "tips" to regenerate AI tips (optional)'
         required: false
+
 jobs:
   fetch-and-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Run Fetch Script
         env:
           STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
@@ -23,13 +30,31 @@ jobs:
         run: |
           if [ -n "${{ github.event.client_payload.activity_id }}" ]; then
             node tools/backfill.js "${{ github.event.client_payload.activity_id }}"
+          elif [ -n "${{ github.event.inputs.activity_id }}" ]; then
+            node tools/backfill.js "${{ github.event.inputs.activity_id }}"
           else
             node tools/backfill.js
           fi
+
       - name: Commit and Push Changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add runs/
-          git commit -m "Auto-update Strava run + AI Tips" || exit 0
+          git commit -m "Auto-update Strava runs via Action" || exit 0
           git push
+
+      - name: Sync rotated Strava token to repo secret
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -f .strava-refresh-token ]; then
+            if [ -n "$GH_TOKEN" ]; then
+              gh secret set STRAVA_REFRESH_TOKEN --body "$(cat .strava-refresh-token)" --repo ${{ github.repository }} && echo "Secret updated with rotated token." || echo "::warning::Failed to update STRAVA_REFRESH_TOKEN secret."
+            else
+              echo "::warning::Token rotated but GH_PAT secret is missing; update STRAVA_REFRESH_TOKEN manually."
+            fi
+            rm -f .strava-refresh-token
+          else
+            echo "No token rotation detected."
+          fi
