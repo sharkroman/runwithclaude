@@ -1,4 +1,4 @@
-name: Process Strava Run
+﻿name: Process Strava Run
 
 on:
   repository_dispatch:
@@ -8,6 +8,9 @@ on:
       activity_id:
         description: 'Activity ID, or "tips" to regenerate AI tips (optional)'
         required: false
+
+permissions:
+  contents: write
 
 jobs:
   fetch-and-build:
@@ -58,3 +61,4 @@ jobs:
           else
             echo "No token rotation detected."
           fi
+
