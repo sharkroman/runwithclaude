@@ -756,10 +756,12 @@ chatInput.addEventListener("keypress", (e) => { if(e.key === "Enter") sendChat()
 
 function boot(data){
   const s = data.streams || {};
+  const meta = data.meta || {};
   D = {
     location: s.location, hr: s.hr, alt: s.alt, dist: s.dist,
     vel: s.vel, grade: s.grade, time: s.time,
     meta: {
+      ...meta,
       id:data.id, name:data.name, sport:data.sport, date:data.date,
       distance_km:data.distance_km, elev_gain_m:data.elev_gain_m,
       moving:data.moving, pace:data.pace, avg_hr:data.avg_hr,
