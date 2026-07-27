@@ -776,7 +776,7 @@ function boot(data){
   renderProfile();
 }
 
-fetch(`runs/${RUN_ID}.json`, {cache:"no-cache"})
+fetch(`runs/${RUN_ID}.json?t=${new Date().getTime()}`, {cache:"no-cache"})
   .then(r=>{ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
   .then(boot)
   .catch(err=>{
