@@ -322,6 +322,12 @@ function paceStr(v){
   const s = 1000/v, m = Math.floor(s/60), ss = Math.round(s%60);
   return `${m}:${String(ss).padStart(2,"0")}`;
 }
+function localizeText(v){
+  if(v==null) return "";
+  if(typeof v === "string") return v;
+  if(typeof v === "object") return LANG==="zh" ? (v.zh || v.en || "") : (v.en || v.zh || "");
+  return String(v);
+}
 
 function buildField(){
   const nx=73, ny=73, dx=PW/(nx-1), dy=PH/(ny-1), g=[];
@@ -497,7 +503,7 @@ function renderAnnotations(){
     
     let subText = "";
     if (w.subText) {
-      subText = w.subText;
+      subText = localizeText(w.subText);
     } else if (w.tKey==="start") subText = `${w.altStr} m`;
     else if (w.tKey==="summit") subText = `${kmAt(i)} ${t('km')} · ${w.altStr} m`;
     else if (w.tKey==="drop") subText = `${kmAt(i)} ${t('km')} · grade ${D.grade[i]}%`;
@@ -505,15 +511,15 @@ function renderAnnotations(){
     
     let detailText = "";
     if (w.tip) {
-      detailText = w.tip;
+      detailText = localizeText(w.tip);
     } else if (D.meta.ai_tips && D.meta.ai_tips[k]) {
-      detailText = D.meta.ai_tips[k];
+      detailText = localizeText(D.meta.ai_tips[k]);
     } else {
       detailText = t(w.dKey);
       if(w.tKey==="summit") detailText = `+${w.gain} ` + detailText;
     }
 
-    let titleText = w.title || t(w.tKey);
+    let titleText = w.title ? localizeText(w.title) : t(w.tKey);
     let hrStr = (D.hr && D.hr[i] > 0) ? ` · HR ${D.hr[i]}` : '';
     
     div.innerHTML=
