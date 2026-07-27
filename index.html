@@ -279,6 +279,10 @@ function computeBounds(){
 }
 
 function buildWaypoints(){
+  if (D.meta && D.meta.waypoints && D.meta.waypoints.length > 0) {
+    WAY = D.meta.waypoints;
+    return;
+  }
   const n=N;
   let sIdx=0, sAlt=D.alt[0];
   for(let i=0;i<n;i++){ if(D.alt[i]>sAlt){sAlt=D.alt[i];sIdx=i;} }
@@ -487,29 +491,36 @@ function renderAnnotations(){
   wrap.innerHTML="";
   const kmAt = i => (D.dist[i]/1000).toFixed(2);
   WAY.forEach((w,k)=>{
-    const i=w.idx, c=TCOLOR[w.type];
+    const i=w.idx, c=TCOLOR[w.type] || TCOLOR["neutral"];
     const div=document.createElement("div");
     div.className="ann"; div.id="ann"+(k+1);
     
     let subText = "";
-    if (w.tKey==="start") subText = `${w.altStr} m`;
+    if (w.subText) {
+      subText = w.subText;
+    } else if (w.tKey==="start") subText = `${w.altStr} m`;
     else if (w.tKey==="summit") subText = `${kmAt(i)} ${t('km')} · ${w.altStr} m`;
     else if (w.tKey==="drop") subText = `${kmAt(i)} ${t('km')} · grade ${D.grade[i]}%`;
     else subText = `${kmAt(i)} ${t('km')}`;
     
     let detailText = "";
-    if (D.meta.ai_tips && D.meta.ai_tips[k]) {
+    if (w.tip) {
+      detailText = w.tip;
+    } else if (D.meta.ai_tips && D.meta.ai_tips[k]) {
       detailText = D.meta.ai_tips[k];
     } else {
       detailText = t(w.dKey);
       if(w.tKey==="summit") detailText = `+${w.gain} ` + detailText;
     }
+
+    let titleText = w.title || t(w.tKey);
+    let hrStr = (D.hr && D.hr[i] > 0) ? ` · HR ${D.hr[i]}` : '';
     
     div.innerHTML=
       `<div class="n" style="background:${c}">${k+1}</div>
        <div>
-         <div class="t" style="color:${c}">${t(w.tKey)}</div>
-         <div class="m mono">${subText} · HR ${D.hr[i]} · ${paceStr(D.vel[i])}${t('pace')}</div>
+         <div class="t" style="color:${c}">${titleText}</div>
+         <div class="m mono">${subText}${hrStr} · ${paceStr(D.vel[i])}${t('pace')}</div>
          <div class="d">${detailText}</div>
        </div>`;
     wrap.appendChild(div);
