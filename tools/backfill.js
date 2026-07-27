@@ -9,6 +9,7 @@ const fallbackRefreshToken = "df3c27549862d8ad028df413b84ae987011a9305";
 const storedToken = fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, "utf8").trim() : null;
 const refreshToken = process.env.STRAVA_REFRESH_TOKEN || storedToken || fallbackRefreshToken;
 const openRouterKey = process.env.OPENROUTER_API_KEY;
+const openRouterModel = process.env.OPENROUTER_MODEL || "openai/gpt-4o-mini";
 
 async function getAccessToken() {
   const res = await fetch("https://www.strava.com/oauth/token", {
@@ -108,37 +109,22 @@ function buildRun(activity, streams) {
   };
 }
 
-async function regenTips(onlyId = null) {
-  if (!openRouterKey) throw new Error("OPENROUTER_API_KEY is required for tips mode");
-  const files = fs.readdirSync(OUT_DIR).filter(f => /^\d+\.json$/.test(f));
-  let updated = 0, skipped = 0;
-  for (const f of files) {
-    if (onlyId && f !== `${onlyId}.json`) continue;
-    const p = path.join(OUT_DIR, f);
-    const runData = JSON.parse(fs.readFileSync(p, "utf8"));
-    if (runData.meta && runData.meta.ai_tips) { skipped++; continue; }
-    if (!runData.streams || !runData.streams.alt || !runData.streams.alt.length) { skipped++; continue; }
-    console.log(`Generating tips for ${runData.id} - ${runData.name}...`);
-    const tips = await generateAITips(runData);
-    if (tips) {
-      runData.meta = runData.meta || {};
-      runData.meta.ai_tips = tips;
-      fs.writeFileSync(p, JSON.stringify(runData));
-      updated++;
-    } else {
-      console.log(`  tips generation failed for ${runData.id}, skipped`);
-    }
-  }
-  console.log(`AI tips updated for ${updated} runs (${skipped} skipped).`);
-}
-
-
 const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
 const pad = n => String(n).padStart(2, "0");
 function paceStr(v) {
   if (!v || v <= 0.3) return "walk";
   const spk = 1000 / v;
   return `${Math.floor(spk / 60)}:${pad(Math.round(spk % 60))}`;
+}
+function paceSeconds(pace) {
+  if (!pace || typeof pace !== "string" || !pace.includes(":")) return null;
+  const [m, s] = pace.split(":").map(Number);
+  if (Number.isNaN(m) || Number.isNaN(s)) return null;
+  return m * 60 + s;
+}
+function formatPace(sec) {
+  if (!sec && sec !== 0) return "";
+  return `${Math.floor(sec / 60)}:${pad(Math.round(sec % 60))}`;
 }
 function hv(arr, i) {
   for (let d = 0; d < arr.length; d++) {
@@ -147,191 +133,382 @@ function hv(arr, i) {
   }
   return null;
 }
-
-function generateDynamicWaypoints(d, recentRuns) {
-  const S = d.streams;
-  const { dist, alt, hr, vel, grade } = S;
-  if (!dist || !alt || !vel || !grade) return null;
-  const n = alt.length;
-  if (n < 10) return null;
-
-  const hasHR = hr && hr.some(x => x != null && x > 30) && d.avg_hr != null;
-  const h = i => (hasHR ? hv(hr, i) : null);
-  const kmAt = i => (dist[i] / 1000).toFixed(2);
-
-  // Historical context
-  let histAvgPaceSec = null;
-  let histAvgHr = null;
-  let histMaxHr = null;
-  let histAvgDist = null;
-  if (recentRuns && recentRuns.length > 0) {
-    const validPace = recentRuns.filter(r => r.pace).map(r => {
-      const [m, s] = r.pace.split(':').map(Number);
-      return m * 60 + s;
-    });
-    if (validPace.length) histAvgPaceSec = Math.round(avg(validPace));
-    const validHr = recentRuns.filter(r => r.avg_hr).map(r => r.avg_hr);
-    if (validHr.length) histAvgHr = Math.round(avg(validHr));
-    const validMaxHr = recentRuns.filter(r => r.max_hr).map(r => r.max_hr);
-    if (validMaxHr.length) histMaxHr = Math.max(...validMaxHr);
-    histAvgDist = avg(recentRuns.map(r => r.distance_km));
-  }
-
-  // Find interesting indices
-  let summitIdx = 0, sAlt = alt[0];
-  for (let i = 0; i < n; i++) if (alt[i] > sAlt) { sAlt = alt[i]; summitIdx = i; }
-
-  let steepClimbIdx = 0, maxG = 0;
-  let steepDropIdx = 0, minG = 0;
-  for (let i = 0; i < n; i++) {
-    if (grade[i] > maxG) { maxG = grade[i]; steepClimbIdx = i; }
-    if (grade[i] < minG) { minG = grade[i]; steepDropIdx = i; }
-  }
-
-  let maxHrIdx = 0, maxH = 0;
-  if (hasHR) {
-    for (let i = 0; i < n; i++) {
-      if (hr[i] > maxH) { maxH = hr[i]; maxHrIdx = i; }
-    }
-  }
-
-  let fastIdx = 0, maxV = 0;
-  for (let i = Math.round(n * 0.05); i < n * 0.95; i++) {
-    if (vel[i] > maxV) { maxV = vel[i]; fastIdx = i; }
-  }
-
-  const candidates = [
-    { idx: 0, tag: "start" },
-    { idx: summitIdx, tag: "summit" },
-    { idx: steepClimbIdx, tag: "steep_climb" },
-    { idx: steepDropIdx, tag: "steep_drop" },
-    { idx: fastIdx, tag: "fastest" },
-    { idx: n - 1, tag: "finish" }
-  ];
-  if (hasHR && maxH > 0) candidates.push({ idx: maxHrIdx, tag: "max_hr" });
-
-  // Sort and deduplicate (must be at least 4% of run apart)
-  candidates.sort((a, b) => a.idx - b.idx);
-  const minSep = n * 0.04;
-  const filtered = [];
-  for (const c of candidates) {
-    if (filtered.length === 0) {
-      filtered.push(c);
-    } else {
-      const last = filtered[filtered.length - 1];
-      if (c.idx - last.idx < minSep) {
-        if (c.tag === 'summit' || c.tag === 'finish' || c.tag === 'max_hr') {
-          filtered[filtered.length - 1] = c;
-        }
-      } else {
-        filtered.push(c);
-      }
-    }
-  }
-
-  const waypoints = [];
-  for (const c of filtered) {
-    const i = c.idx;
-    const pStr = paceStr(vel[i]);
-    const hrVal = h(i);
-    const hrNoteEN = hrVal ? `, HR ${hrVal}` : "";
-    const hrNoteCN = hrVal ? `，心率${hrVal}` : "";
-    
-    let type = "neutral";
-    let title = "";
-    let subText = `${kmAt(i)} km`;
-    let tip = "";
-
-    if (c.tag === "start") {
-      title = "Start / 起点";
-      type = "neutral";
-      subText = `${Math.round(alt[i])} m`;
-      const distCmp = histAvgDist ? (d.distance_km > histAvgDist * 1.1 ? "longer than" : (d.distance_km < histAvgDist * 0.9 ? "shorter than" : "similar to")) : "";
-      tip = `Starting out at ${Math.round(alt[i])}m. ${distCmp ? `Today's ${d.distance_km}km is ${distCmp} your recent average of ${histAvgDist.toFixed(1)}km. ` : ""}` +
-            `从海拔${Math.round(alt[i])}米起步。${distCmp ? `今天的${d.distance_km}公里比你最近平均的${histAvgDist.toFixed(1)}公里${distCmp==='longer than'?'要长':distCmp==='shorter than'?'要短':'差不多'}。` : ""}`;
-    } else if (c.tag === "summit") {
-      title = "Summit / 最高点";
-      type = "target";
-      subText = `${kmAt(i)} km · ${Math.round(alt[i])} m`;
-      tip = `High point of the route at ${Math.round(alt[i])}m${hrNoteEN}. ` +
-            `全程最高点${Math.round(alt[i])}米${hrNoteCN}。`;
-    } else if (c.tag === "steep_climb") {
-      title = "Steepest Climb / 最陡爬坡";
-      type = "warning";
-      tip = `Hitting a ${grade[i]}% grade here. Pace slows to ${pStr}/km${hrNoteEN}, a strong power phase. ` +
-            `遇到${grade[i]}%的陡坡。配速降至${pStr}/公里${hrNoteCN}，极好的力量训练阶段。`;
-    } else if (c.tag === "steep_drop") {
-      title = "Steepest Drop / 最陡下坡";
-      type = "critical";
-      tip = `Gravity takes over with a ${grade[i]}% descent. Pace ${pStr}/km. ` +
-            `进入${grade[i]}%的陡下坡。配速${pStr}/公里。`;
-    } else if (c.tag === "fastest") {
-      title = "Peak Pace / 极速区间";
-      type = "target";
-      tip = `You opened up the stride here hitting ${pStr}/km. ` +
-            `你在这里迈开步子，达到了${pStr}/公里的极速。`;
-    } else if (c.tag === "max_hr") {
-      title = "Peak Effort / 极值心率";
-      type = "warning";
-      const hrCmp = (histMaxHr && maxH > histMaxHr) ? ` This is higher than your recent max of ${histMaxHr}.` : "";
-      const hrCmpCN = (histMaxHr && maxH > histMaxHr) ? ` 这比你近期的峰值${histMaxHr}还要高。` : "";
-      tip = `Your heart rate peaked at ${maxH} bpm here.${hrCmp} ` +
-            `心率在这里达到峰值${maxH}。${hrCmpCN}`;
-    } else if (c.tag === "finish") {
-      title = "Finish / 终点";
-      type = "neutral";
-      let paceCmp = "";
-      let paceCmpCN = "";
-      if (histAvgPaceSec && d.pace) {
-        const [m, s] = d.pace.split(':').map(Number);
-        const todaySec = m * 60 + s;
-        if (todaySec < histAvgPaceSec - 5) { paceCmp = ` Faster than your recent average (${Math.floor(histAvgPaceSec/60)}:${pad(Math.round(histAvgPaceSec%60))}/km)!`; paceCmpCN = ` 比你最近的平均配速（${Math.floor(histAvgPaceSec/60)}:${pad(Math.round(histAvgPaceSec%60))}/公里）要快！`; }
-        else if (todaySec > histAvgPaceSec + 5) { paceCmp = ` A bit more relaxed than your recent average (${Math.floor(histAvgPaceSec/60)}:${pad(Math.round(histAvgPaceSec%60))}/km).`; paceCmpCN = ` 比你最近的平均配速（${Math.floor(histAvgPaceSec/60)}:${pad(Math.round(histAvgPaceSec%60))}/公里）要轻松一些。`; }
-      }
-      tip = `Finished ${d.distance_km}km in ${d.moving} (avg ${d.pace}/km).${paceCmp} ` +
-            `完成${d.distance_km}公里，用时${d.moving}（平均${d.pace}/公里）。${paceCmpCN}`;
-    }
-
-    waypoints.push({
-      idx: i,
-      type: type,
-      title: title,
-      subText: subText,
-      tip: tip
-    });
-  }
-
-  return waypoints;
+function seededRandom(seed) {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6D2B79F5;
+    let x = Math.imul(t ^ (t >>> 15), 1 | t);
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
 }
-
-async function regenTips(onlyId = null) {
-  const indexFile = path.join(OUT_DIR, "index.json");
-  let allRuns = [];
-  if (fs.existsSync(indexFile)) {
-    allRuns = JSON.parse(fs.readFileSync(indexFile, "utf8"));
+function mean(arr) {
+  const vals = arr.filter(v => typeof v === "number" && !Number.isNaN(v));
+  return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+}
+function round1(v) {
+  return v == null ? null : Math.round(v * 10) / 10;
+}
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
+function tryParseDate(v) {
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+function parseJsonBlock(text) {
+  if (!text) return null;
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
   }
+}
+function localText(en, zh) {
+  return { en, zh };
+}
+function pickLocalized(v, lang = "en") {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "object") return lang === "zh" ? (v.zh || v.en || "") : (v.en || v.zh || "");
+  return String(v);
+}
+function buildRecentHistory(recentRuns) {
+  const paceVals = recentRuns.map(r => paceSeconds(r.pace)).filter(v => v != null);
+  const distVals = recentRuns.map(r => r.distance_km).filter(v => typeof v === "number");
+  const elevVals = recentRuns.map(r => r.elev_gain_m).filter(v => typeof v === "number");
+  const hrVals = recentRuns.map(r => r.avg_hr).filter(v => typeof v === "number");
+  const maxHrVals = recentRuns.map(r => r.max_hr).filter(v => typeof v === "number");
+  return {
+    count: recentRuns.length,
+    avg_distance_km: round1(mean(distVals)),
+    avg_pace: paceVals.length ? formatPace(Math.round(mean(paceVals))) : null,
+    avg_hr: hrVals.length ? Math.round(mean(hrVals)) : null,
+    max_recent_hr: maxHrVals.length ? Math.max(...maxHrVals) : null,
+    avg_elev_gain_m: elevVals.length ? Math.round(mean(elevVals)) : null,
+    recent_runs: recentRuns.slice(0, 8).map(r => ({
+      id: r.id,
+      name: r.name,
+      date: r.date,
+      distance_km: r.distance_km,
+      pace: r.pace,
+      avg_hr: r.avg_hr,
+      max_hr: r.max_hr,
+      elev_gain_m: r.elev_gain_m
+    }))
+  };
+}
+function buildCompressedRunContext(runData) {
+  const { dist = [], alt = [], hr = [], vel = [], grade = [], time = [], location = [] } = runData.streams || {};
+  const n = dist.length;
+  if (!n) return null;
+  const targetSegments = Math.max(36, Math.min(120, Math.round(runData.distance_km * 10)));
+  const step = Math.max(1, Math.floor(n / targetSegments));
+  const segments = [];
+  for (let start = 0; start < n; start += step) {
+    const end = Math.min(n - 1, start + step);
+    const idxs = [];
+    for (let i = start; i <= end; i++) idxs.push(i);
+    const segHr = idxs.map(i => hr[i]).filter(v => v > 30);
+    const segVel = idxs.map(i => vel[i]).filter(v => v > 0.3);
+    const segGrade = idxs.map(i => grade[i]).filter(v => typeof v === "number");
+    const segAlt = idxs.map(i => alt[i]).filter(v => typeof v === "number");
+    const segTimeStart = time[start] || 0;
+    const segTimeEnd = time[end] || segTimeStart;
+    const mid = Math.floor((start + end) / 2);
+    segments.push({
+      idx_start: start,
+      idx_mid: mid,
+      idx_end: end,
+      km_start: round1((dist[start] || 0) / 1000),
+      km_end: round1((dist[end] || 0) / 1000),
+      seconds_start: segTimeStart,
+      seconds_end: segTimeEnd,
+      avg_pace: segVel.length ? paceStr(mean(segVel)) : null,
+      avg_hr: segHr.length ? Math.round(mean(segHr)) : null,
+      avg_grade: segGrade.length ? round1(mean(segGrade)) : null,
+      elev_delta_m: segAlt.length ? round1(segAlt[segAlt.length - 1] - segAlt[0]) : null,
+      min_alt_m: segAlt.length ? round1(Math.min(...segAlt)) : null,
+      max_alt_m: segAlt.length ? round1(Math.max(...segAlt)) : null,
+      gps_start: location[start] || null,
+      gps_mid: location[mid] || null,
+      gps_end: location[end] || null
+    });
+  }
+  return {
+    run_summary: {
+      id: runData.id,
+      name: runData.name,
+      date: runData.date,
+      distance_km: runData.distance_km,
+      elev_gain_m: runData.elev_gain_m,
+      moving: runData.moving,
+      pace: runData.pace,
+      avg_hr: runData.avg_hr,
+      max_hr: runData.max_hr,
+      points: n
+    },
+    segments
+  };
+}
+function inferWaypointType(waypoint, runData) {
+  const text = `${pickLocalized(waypoint.title, "en")} ${pickLocalized(waypoint.tip, "en")}`.toLowerCase();
+  const idx = waypoint.idx || 0;
+  const lastIdx = (runData.streams?.dist?.length || 1) - 1;
+  const grade = runData.streams?.grade?.[idx] || 0;
+  if (idx === 0 || idx === lastIdx) return "neutral";
+  if (text.includes("drop") || text.includes("descent") || grade <= -8) return "critical";
+  if (text.includes("summit") || text.includes("push") || text.includes("surge") || text.includes("fast")) return "target";
+  if (text.includes("fatigue") || text.includes("fade") || text.includes("heart") || grade >= 8) return "warning";
+  return "neutral";
+}
+function normalizeWaypoints(raw, runData) {
+  if (!raw || !Array.isArray(raw.waypoints) || raw.waypoints.length < 7) return null;
+  const maxIdx = (runData.streams?.dist?.length || 1) - 1;
+  const used = new Set();
+  const normalized = raw.waypoints.map((w, index) => {
+    let idx = clamp(Math.round(Number(w.idx) || 0), 0, maxIdx);
+    while (used.has(idx) && idx < maxIdx) idx += 1;
+    used.add(idx);
+    const title = typeof w.title === "object" ? localText(w.title.en || "", w.title.zh || "") : localText(String(w.title || `Moment ${index + 1}`), String(w.title || `时刻 ${index + 1}`));
+    const tip = typeof w.tip === "object" ? localText(w.tip.en || "", w.tip.zh || "") : localText(String(w.tip || ""), String(w.tip || ""));
+    return {
+      idx,
+      type: ["neutral", "warning", "target", "critical"].includes(w.type) ? w.type : inferWaypointType({ idx, title, tip }, runData),
+      title,
+      tip
+    };
+  }).sort((a, b) => a.idx - b.idx);
+  if (normalized.length !== 7) return null;
+  return normalized;
+}
+function finalizeWaypoints(waypoints, runData) {
+  const { dist = [], alt = [], hr = [], vel = [] } = runData.streams || {};
+  return waypoints.map(w => {
+    const i = clamp(w.idx, 0, dist.length - 1);
+    const km = round1((dist[i] || 0) / 1000);
+    const hrVal = hr[i] > 30 ? hr[i] : null;
+    const meters = Math.round(alt[i] || 0);
+    const pace = paceStr(vel[i]);
+    let subEn = `${km} km`;
+    let subZh = `${km} 公里`;
+    if (meters && Math.abs(meters - Math.round(alt[0] || 0)) > 10) {
+      subEn += ` · ${meters} m`;
+      subZh += ` · ${meters} 米`;
+    }
+    return {
+      idx: i,
+      type: w.type || "neutral",
+      title: {
+        en: pickLocalized(w.title, "en"),
+        zh: pickLocalized(w.title, "zh")
+      },
+      subText: {
+        en: subEn,
+        zh: subZh
+      },
+      tip: {
+        en: pickLocalized(w.tip, "en"),
+        zh: pickLocalized(w.tip, "zh")
+      },
+      metrics: {
+        hr: hrVal,
+        pace
+      }
+    };
+  }).sort((a, b) => a.idx - b.idx);
+}
+function heuristicWaypoints(runData, recentRuns) {
+  const { dist = [], alt = [], hr = [], vel = [], grade = [] } = runData.streams || {};
+  const n = dist.length;
+  if (!n) return null;
+  const rand = seededRandom(runData.id || n);
+  const history = buildRecentHistory(recentRuns);
+  const hasHR = hr.some(v => v > 30);
+  const paceNow = paceSeconds(runData.pace);
+  const histPace = paceSeconds(history.avg_pace);
+  const chooseTitle = (optionsEn, optionsZh) => localText(optionsEn[Math.floor(rand() * optionsEn.length)], optionsZh[Math.floor(rand() * optionsZh.length)]);
 
+  let summitIdx = 0;
+  let climbIdx = 0;
+  let dropIdx = 0;
+  let fastIdx = 0;
+  let hrIdx = 0;
+  let slowIdx = Math.floor(n * 0.7);
+  for (let i = 1; i < n; i++) {
+    if ((alt[i] || 0) > (alt[summitIdx] || 0)) summitIdx = i;
+    if ((grade[i] || 0) > (grade[climbIdx] || 0)) climbIdx = i;
+    if ((grade[i] || 0) < (grade[dropIdx] || 0)) dropIdx = i;
+    if ((vel[i] || 0) > (vel[fastIdx] || 0)) fastIdx = i;
+    if ((hr[i] || 0) > (hr[hrIdx] || 0)) hrIdx = i;
+    if ((vel[i] || Infinity) < (vel[slowIdx] || Infinity) && i > Math.floor(n * 0.3)) slowIdx = i;
+  }
+  const candidatePool = [
+    { idx: 0, type: "neutral", title: chooseTitle(["Opening Read", "First Impression", "Settling In"], ["开场读秒", "第一印象", "进入状态"]), tip: localText(
+      history.avg_distance_km ? `The run opens at ${Math.round(alt[0] || 0)}m. Today is ${runData.distance_km}km versus your recent ${history.avg_distance_km}km average, so the workload profile is already different.` : `The run opens at ${Math.round(alt[0] || 0)}m with fresh legs and plenty of room for the route to define itself.`,
+      history.avg_distance_km ? `这次从 ${Math.round(alt[0] || 0)} 米起步。今天是 ${runData.distance_km} 公里，而你最近平均约 ${history.avg_distance_km} 公里，训练负荷从一开始就不同。` : `这次从 ${Math.round(alt[0] || 0)} 米起步，双腿还新鲜，路线会很快显露今天的风格。`
+    ) },
+    { idx: climbIdx, type: "warning", title: chooseTitle(["Torque Check", "Power Patch", "Climb Bite"], ["扭矩检查", "力量区间", "爬坡咬点"]), tip: localText(
+      `This is the steepest uphill patch at ${round1((dist[climbIdx] || 0) / 1000)}km. Grade hits ${round1(grade[climbIdx] || 0)}%, and the run asks for force rather than rhythm here.`,
+      `这里是最陡的上坡段，位于 ${round1((dist[climbIdx] || 0) / 1000)} 公里处。坡度达到 ${round1(grade[climbIdx] || 0)}%，这里更考验力量，而不是节奏。`
+    ) },
+    { idx: summitIdx, type: "target", title: chooseTitle(["Route Pivot", "High Point", "Turn Of The Run"], ["路线转折", "全程高点", "节奏拐点"]), tip: localText(
+      `The route crests here at ${Math.round(alt[summitIdx] || 0)}m. This is less about “the summit” and more about where the whole run changes character.`,
+      `路线在这里来到 ${Math.round(alt[summitIdx] || 0)} 米的高点。它不只是“最高点”，更是整次跑步性格发生变化的位置。`
+    ) },
+    { idx: dropIdx, type: "critical", title: chooseTitle(["Free Speed", "Gravity Test", "Downhill Choice"], ["免费速度", "重力测试", "下坡选择"]), tip: localText(
+      `The steepest descent arrives here at ${round1(grade[dropIdx] || 0)}%. This section rewards confidence and punishes braking.`,
+      `最陡下坡出现在这里，坡度 ${round1(grade[dropIdx] || 0)}%。这段会奖励顺势而下，也会惩罚用力刹车。`
+    ) },
+    { idx: fastIdx, type: "target", title: chooseTitle(["Release Point", "Stride Opens", "Fast Window"], ["释放点", "步幅打开", "极速窗口"]), tip: localText(
+      `Your quickest section appears here at about ${paceStr(vel[fastIdx])}/km. The route finally gives you permission to move.`,
+      `你最快的区间出现在这里，约 ${paceStr(vel[fastIdx])}/公里。路线终于允许你把速度放出来。`
+    ) },
+    { idx: hasHR ? hrIdx : slowIdx, type: "warning", title: chooseTitle(["Stress Marker", "Cost Of The Run", "Pressure Point"], ["压力标记", "代价时刻", "受压点"]), tip: localText(
+      hasHR ? `Heart rate tops out at ${hr[hrIdx]} here, which is the physiological price tag of this run.` : `This is the slowest late-run patch, a good proxy for where the cost of the run starts showing up in the legs.`,
+      hasHR ? `这里的心率来到峰值 ${hr[hrIdx]}，可以理解为这次跑步付出的生理代价。` : `这里是后程最慢的一段，可以把它理解为疲劳真正开始落到双腿上的位置。`
+    ) },
+    { idx: n - 1, type: "neutral", title: chooseTitle(["Finish Read", "Exit Signal", "Closing Note"], ["收尾读数", "结束信号", "结尾注脚"]), tip: localText(
+      histPace && paceNow ? `You close at ${runData.pace}/km overall, ${paceNow < histPace ? "quicker" : paceNow > histPace ? "easier" : "almost identical"} than your recent ${history.avg_pace}/km baseline.` : `The run closes with enough information to tell a story, even without forcing it into fixed milestones.`,
+      histPace && paceNow ? `最终均配 ${runData.pace}/公里，和你最近 ${history.avg_pace}/公里 的基线相比，今天${paceNow < histPace ? "更快" : paceNow > histPace ? "更轻松" : "几乎一致"}。` : `这次结束时已经留下足够多的信息，没必要再硬套固定里程碑。`
+    ) }
+  ];
+  return finalizeWaypoints(candidatePool, runData);
+}
+async function generateLLMWaypoints(runData, recentRuns) {
+  if (!openRouterKey) return null;
+  const context = {
+    current_run: buildCompressedRunContext(runData),
+    recent_history: buildRecentHistory(recentRuns),
+    instructions: {
+      choose_exactly: 7,
+      rule: "Choose 7 diverse moments from the whole run. They do NOT need to include start, finish, summit, fastest, or max heart rate unless those are genuinely interesting.",
+      output_schema: {
+        waypoints: [
+          {
+            idx: "integer index from the original run stream",
+            type: "one of neutral|warning|target|critical",
+            title: { en: "short English title", zh: "short Chinese title" },
+            tip: { en: "1-2 sentence English coaching note", zh: "1-2 sentence Chinese coaching note" }
+          }
+        ]
+      }
+    }
+  };
+  const prompt = [
+    "You are writing elite running-coach annotations for a single run.",
+    "Use the full run context and recent history provided.",
+    "Choose exactly 7 interesting moments anywhere in the run.",
+    "Do not force generic categories like start/summit/max HR unless they are truly the most interesting points.",
+    "Make each title and note specific to this run, not a template.",
+    "Return JSON only."
+  ].join(" ");
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${openRouterKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: openRouterModel,
+          temperature: 0.7,
+          messages: [
+            { role: "system", content: prompt },
+            { role: "user", content: JSON.stringify(context) }
+          ]
+        })
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        console.error(`LLM waypoint HTTP ${res.status} (attempt ${attempt}): ${err.slice(0, 300)}`);
+      } else {
+        const data = await res.json();
+        const text = data?.choices?.[0]?.message?.content || "";
+        const parsed = parseJsonBlock(text);
+        const normalized = normalizeWaypoints(parsed, runData);
+        if (normalized) return finalizeWaypoints(normalized, runData);
+        console.error(`LLM waypoint parse failed (attempt ${attempt})`);
+      }
+    } catch (err) {
+      console.error(`LLM waypoint fetch error (attempt ${attempt}): ${err.message}`);
+    }
+  }
+  return null;
+}
+async function generateWaypointBundle(runData, recentRuns) {
+  const llmWaypoints = await generateLLMWaypoints(runData, recentRuns);
+  if (llmWaypoints) {
+    return {
+      waypoints: llmWaypoints,
+      ai_tips: llmWaypoints.map(w => w.tip),
+      ai_generation: {
+        mode: "llm",
+        model: openRouterModel,
+        history_count: recentRuns.length
+      }
+    };
+  }
+  const fallback = heuristicWaypoints(runData, recentRuns);
+  if (!fallback) return null;
+  return {
+    waypoints: fallback,
+    ai_tips: fallback.map(w => w.tip),
+    ai_generation: {
+      mode: "heuristic_fallback",
+      history_count: recentRuns.length
+    }
+  };
+}
+function loadRunById(id) {
+  const file = path.join(OUT_DIR, `${id}.json`);
+  if (!fs.existsSync(file)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function loadRecentRuns(indexData, targetDate, currentId, limit = 8) {
+  const date = tryParseDate(targetDate);
+  if (!date) return [];
+  return indexData
+    .filter(r => r.id !== currentId && tryParseDate(r.date) && tryParseDate(r.date) < date)
+    .sort((a, b) => tryParseDate(b.date) - tryParseDate(a.date))
+    .slice(0, limit)
+    .map(r => loadRunById(r.id))
+    .filter(Boolean);
+}
+async function regenTips(onlyId = null) {
+  const indexPath = path.join(OUT_DIR, "index.json");
+  const indexData = fs.existsSync(indexPath) ? JSON.parse(fs.readFileSync(indexPath, "utf8")) : [];
   const files = fs.readdirSync(OUT_DIR).filter(f => /^\d+\.json$/.test(f));
   let updated = 0, skipped = 0;
   for (const f of files) {
     if (onlyId && f !== `${onlyId}.json`) continue;
     const p = path.join(OUT_DIR, f);
     const runData = JSON.parse(fs.readFileSync(p, "utf8"));
-    
-    // Find up to 5 runs before this one chronologically
-    const runDate = new Date(runData.date);
-    const recentRuns = allRuns.filter(r => new Date(r.date) < runDate).slice(0, 5);
-
-    const waypoints = generateDynamicWaypoints(runData, recentRuns);
-    if (waypoints) {
-      runData.meta = runData.meta || {};
-      runData.meta.waypoints = waypoints;
-      runData.meta.ai_tips = waypoints.map(w => w.tip);
-      fs.writeFileSync(p, JSON.stringify(runData));
-      updated++;
-    } else {
+    if (!runData.streams || !runData.streams.location || !runData.streams.location.length) {
       skipped++;
+      continue;
     }
+    const recentRuns = loadRecentRuns(indexData, runData.date, runData.id, 8);
+    const bundle = await generateWaypointBundle(runData, recentRuns);
+    if (!bundle) {
+      skipped++;
+      continue;
+    }
+    runData.meta = runData.meta || {};
+    runData.meta.waypoints = bundle.waypoints;
+    runData.meta.ai_tips = bundle.ai_tips;
+    runData.meta.ai_generation = bundle.ai_generation;
+    fs.writeFileSync(p, JSON.stringify(runData));
+    updated++;
+    console.log(`AI bundle refreshed for ${runData.id} (${bundle.ai_generation.mode})`);
   }
   console.log(`regenTips: updated=${updated} skipped=${skipped}`);
 }
@@ -393,12 +570,14 @@ async function main() {
       const runData = buildRun(detail || act, streams);
       if(runData.streams.location.length === 0) continue;
 
-      // Add AI Tips
-      const tips = await generateAITips(runData);
-      if(tips) {
+      const recentRuns = loadRecentRuns(indexData, runData.date, runData.id, 8);
+      const bundle = await generateWaypointBundle(runData, recentRuns);
+      if (bundle) {
         runData.meta = runData.meta || {};
-        runData.meta.ai_tips = tips;
-        console.log(`Generated AI tips for ${id}`);
+        runData.meta.waypoints = bundle.waypoints;
+        runData.meta.ai_tips = bundle.ai_tips;
+        runData.meta.ai_generation = bundle.ai_generation;
+        console.log(`Generated AI waypoint bundle for ${id} (${bundle.ai_generation.mode})`);
       }
       
       fs.writeFileSync(outPath, JSON.stringify(runData));
