@@ -149,6 +149,9 @@ function mean(arr) {
 function round1(v) {
   return v == null ? null : Math.round(v * 10) / 10;
 }
+function round5(v) {
+  return v == null ? null : Math.round(v * 100000) / 100000;
+}
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
@@ -201,42 +204,52 @@ function buildRecentHistory(recentRuns) {
     }))
   };
 }
-function buildCompressedRunContext(runData) {
+function buildLLMRunContext(runData) {
   const { dist = [], alt = [], hr = [], vel = [], grade = [], time = [], location = [] } = runData.streams || {};
   const n = dist.length;
   if (!n) return null;
-  const targetSegments = Math.max(36, Math.min(120, Math.round(runData.distance_km * 10)));
-  const step = Math.max(1, Math.floor(n / targetSegments));
-  const segments = [];
-  for (let start = 0; start < n; start += step) {
-    const end = Math.min(n - 1, start + step);
-    const idxs = [];
-    for (let i = start; i <= end; i++) idxs.push(i);
-    const segHr = idxs.map(i => hr[i]).filter(v => v > 30);
-    const segVel = idxs.map(i => vel[i]).filter(v => v > 0.3);
-    const segGrade = idxs.map(i => grade[i]).filter(v => typeof v === "number");
-    const segAlt = idxs.map(i => alt[i]).filter(v => typeof v === "number");
-    const segTimeStart = time[start] || 0;
-    const segTimeEnd = time[end] || segTimeStart;
-    const mid = Math.floor((start + end) / 2);
-    segments.push({
-      idx_start: start,
-      idx_mid: mid,
-      idx_end: end,
-      km_start: round1((dist[start] || 0) / 1000),
-      km_end: round1((dist[end] || 0) / 1000),
-      seconds_start: segTimeStart,
-      seconds_end: segTimeEnd,
-      avg_pace: segVel.length ? paceStr(mean(segVel)) : null,
-      avg_hr: segHr.length ? Math.round(mean(segHr)) : null,
-      avg_grade: segGrade.length ? round1(mean(segGrade)) : null,
-      elev_delta_m: segAlt.length ? round1(segAlt[segAlt.length - 1] - segAlt[0]) : null,
-      min_alt_m: segAlt.length ? round1(Math.min(...segAlt)) : null,
-      max_alt_m: segAlt.length ? round1(Math.max(...segAlt)) : null,
-      gps_start: location[start] || null,
-      gps_mid: location[mid] || null,
-      gps_end: location[end] || null
+  const maxPoints = runData.distance_km <= 8 ? 900 : runData.distance_km <= 20 ? 1200 : 1600;
+  const step = Math.max(1, Math.ceil(n / maxPoints));
+  const telemetry_points = [];
+  for (let i = 0; i < n; i += step) {
+    const gps = location[i] || [];
+    telemetry_points.push({
+      idx: i,
+      km: round1((dist[i] || 0) / 1000),
+      seconds: time[i] || 0,
+      altitude_m: round1(alt[i] || 0),
+      hr: hr[i] > 30 ? Math.round(hr[i]) : null,
+      pace: vel[i] > 0.3 ? paceStr(vel[i]) : null,
+      grade_pct: typeof grade[i] === "number" ? round1(grade[i]) : null,
+      lat: round5(gps[0]),
+      lng: round5(gps[1])
     });
+  }
+  if (telemetry_points[telemetry_points.length - 1]?.idx !== n - 1) {
+    const gps = location[n - 1] || [];
+    telemetry_points.push({
+      idx: n - 1,
+      km: round1((dist[n - 1] || 0) / 1000),
+      seconds: time[n - 1] || 0,
+      altitude_m: round1(alt[n - 1] || 0),
+      hr: hr[n - 1] > 30 ? Math.round(hr[n - 1]) : null,
+      pace: vel[n - 1] > 0.3 ? paceStr(vel[n - 1]) : null,
+      grade_pct: typeof grade[n - 1] === "number" ? round1(grade[n - 1]) : null,
+      lat: round5(gps[0]),
+      lng: round5(gps[1])
+    });
+  }
+  let fastestIdx = 0;
+  let steepestUpIdx = 0;
+  let steepestDownIdx = 0;
+  let highestIdx = 0;
+  let maxHrIdx = 0;
+  for (let i = 1; i < n; i++) {
+    if ((vel[i] || 0) > (vel[fastestIdx] || 0)) fastestIdx = i;
+    if ((grade[i] || 0) > (grade[steepestUpIdx] || 0)) steepestUpIdx = i;
+    if ((grade[i] || 0) < (grade[steepestDownIdx] || 0)) steepestDownIdx = i;
+    if ((alt[i] || 0) > (alt[highestIdx] || 0)) highestIdx = i;
+    if ((hr[i] || 0) > (hr[maxHrIdx] || 0)) maxHrIdx = i;
   }
   return {
     run_summary: {
@@ -251,7 +264,19 @@ function buildCompressedRunContext(runData) {
       max_hr: runData.max_hr,
       points: n
     },
-    segments
+    sample_policy: {
+      source_points: n,
+      sent_points: telemetry_points.length,
+      sampling_step: step
+    },
+    telemetry_points,
+    notable_extremes: {
+      highest_point: { idx: highestIdx, km: round1((dist[highestIdx] || 0) / 1000), altitude_m: round1(alt[highestIdx] || 0) },
+      steepest_uphill: { idx: steepestUpIdx, km: round1((dist[steepestUpIdx] || 0) / 1000), grade_pct: round1(grade[steepestUpIdx] || 0) },
+      steepest_downhill: { idx: steepestDownIdx, km: round1((dist[steepestDownIdx] || 0) / 1000), grade_pct: round1(grade[steepestDownIdx] || 0) },
+      fastest_split: { idx: fastestIdx, km: round1((dist[fastestIdx] || 0) / 1000), pace: vel[fastestIdx] > 0.3 ? paceStr(vel[fastestIdx]) : null },
+      max_hr_point: hr[maxHrIdx] > 30 ? { idx: maxHrIdx, km: round1((dist[maxHrIdx] || 0) / 1000), hr: Math.round(hr[maxHrIdx]) } : null
+    }
   };
 }
 function inferWaypointType(waypoint, runData) {
@@ -272,6 +297,8 @@ function normalizeWaypoints(raw, runData) {
   const normalized = raw.waypoints.map((w, index) => {
     let idx = clamp(Math.round(Number(w.idx) || 0), 0, maxIdx);
     while (used.has(idx) && idx < maxIdx) idx += 1;
+    while (used.has(idx) && idx > 0) idx -= 1;
+    if (used.has(idx)) return null;
     used.add(idx);
     const title = typeof w.title === "object" ? localText(w.title.en || "", w.title.zh || "") : localText(String(w.title || `Moment ${index + 1}`), String(w.title || `时刻 ${index + 1}`));
     const tip = typeof w.tip === "object" ? localText(w.tip.en || "", w.tip.zh || "") : localText(String(w.tip || ""), String(w.tip || ""));
@@ -281,9 +308,9 @@ function normalizeWaypoints(raw, runData) {
       title,
       tip
     };
-  }).sort((a, b) => a.idx - b.idx);
-  if (normalized.length !== 7) return null;
-  return normalized;
+  }).filter(Boolean).sort((a, b) => a.idx - b.idx);
+  if (normalized.length < 7) return null;
+  return normalized.slice(0, 7);
 }
 function finalizeWaypoints(waypoints, runData) {
   const { dist = [], alt = [], hr = [], vel = [] } = runData.streams || {};
@@ -321,7 +348,7 @@ function finalizeWaypoints(waypoints, runData) {
     };
   }).sort((a, b) => a.idx - b.idx);
 }
-function heuristicWaypoints(runData, recentRuns) {
+function emergencyFallbackWaypoints(runData, recentRuns) {
   const { dist = [], alt = [], hr = [], vel = [], grade = [] } = runData.streams || {};
   const n = dist.length;
   if (!n) return null;
@@ -330,62 +357,78 @@ function heuristicWaypoints(runData, recentRuns) {
   const hasHR = hr.some(v => v > 30);
   const paceNow = paceSeconds(runData.pace);
   const histPace = paceSeconds(history.avg_pace);
-  const chooseTitle = (optionsEn, optionsZh) => localText(optionsEn[Math.floor(rand() * optionsEn.length)], optionsZh[Math.floor(rand() * optionsZh.length)]);
-
-  let summitIdx = 0;
-  let climbIdx = 0;
-  let dropIdx = 0;
-  let fastIdx = 0;
-  let hrIdx = 0;
-  let slowIdx = Math.floor(n * 0.7);
-  for (let i = 1; i < n; i++) {
-    if ((alt[i] || 0) > (alt[summitIdx] || 0)) summitIdx = i;
-    if ((grade[i] || 0) > (grade[climbIdx] || 0)) climbIdx = i;
-    if ((grade[i] || 0) < (grade[dropIdx] || 0)) dropIdx = i;
-    if ((vel[i] || 0) > (vel[fastIdx] || 0)) fastIdx = i;
-    if ((hr[i] || 0) > (hr[hrIdx] || 0)) hrIdx = i;
-    if ((vel[i] || Infinity) < (vel[slowIdx] || Infinity) && i > Math.floor(n * 0.3)) slowIdx = i;
+  const windows = 7;
+  const candidatePool = [];
+  for (let s = 0; s < windows; s++) {
+    const start = Math.floor((s * n) / windows);
+    const end = Math.max(start, Math.min(n - 1, Math.floor(((s + 1) * n) / windows) - 1));
+    const span = Math.max(1, end - start);
+    const idx = clamp(start + Math.floor(rand() * span), start, end);
+    const km = round1((dist[idx] || 0) / 1000);
+    const hrVal = hr[idx] > 30 ? Math.round(hr[idx]) : null;
+    const pace = vel[idx] > 0.3 ? paceStr(vel[idx]) : "walk";
+    const gradeVal = round1(grade[idx] || 0);
+    const altVal = Math.round(alt[idx] || 0);
+    const relativePace = histPace && paceNow
+      ? (paceNow < histPace ? "quicker than recent baseline overall" : paceNow > histPace ? "easier than recent baseline overall" : "close to recent baseline overall")
+      : null;
+    let type = "neutral";
+    if (gradeVal <= -8) type = "critical";
+    else if (gradeVal >= 8 || (hrVal != null && runData.max_hr && hrVal >= runData.max_hr - 3)) type = "warning";
+    else if (pace !== "walk" && vel[idx] >= Math.max(...vel)) type = "target";
+    let en = `At ${km}km, the run is moving through ${altVal}m with ${pace}/km pace`;
+    let zh = `在 ${km} 公里处，路线来到 ${altVal} 米，当前配速约 ${pace}/公里`;
+    if (hrVal != null) {
+      en += ` and HR ${hrVal}`;
+      zh += `，心率 ${hrVal}`;
+    }
+    en += `.`;
+    zh += `。`;
+    if (gradeVal >= 8) {
+      en += ` This stretch tilts up at ${gradeVal}%, so the effort is more about force than flow.`;
+      zh += ` 这一段上扬到 ${gradeVal}% ，更考验力量而不是流畅节奏。`;
+    } else if (gradeVal <= -8) {
+      en += ` The downhill angle hits ${gradeVal}%, so control matters more than chasing free speed.`;
+      zh += ` 这一段下坡来到 ${gradeVal}% ，控制重心比盲目追速度更重要。`;
+    } else {
+      en += ` This is a usable snapshot of how the run is evolving mid-route.`;
+      zh += ` 这是观察整次跑步如何演变的一个有效切面。`;
+    }
+    if (relativePace) {
+      en += ` The full run looks ${relativePace}.`;
+      zh += ` 从全程看，这次与近期基线相比${paceNow < histPace ? "更快" : paceNow > histPace ? "更轻松" : "比较接近"}。`;
+    }
+    candidatePool.push({
+      idx,
+      type,
+      title: localText(`Moment ${s + 1}`, `节点 ${s + 1}`),
+      tip: localText(en, zh)
+    });
   }
-  const candidatePool = [
-    { idx: 0, type: "neutral", title: chooseTitle(["Opening Read", "First Impression", "Settling In"], ["开场读秒", "第一印象", "进入状态"]), tip: localText(
-      history.avg_distance_km ? `The run opens at ${Math.round(alt[0] || 0)}m. Today is ${runData.distance_km}km versus your recent ${history.avg_distance_km}km average, so the workload profile is already different.` : `The run opens at ${Math.round(alt[0] || 0)}m with fresh legs and plenty of room for the route to define itself.`,
-      history.avg_distance_km ? `这次从 ${Math.round(alt[0] || 0)} 米起步。今天是 ${runData.distance_km} 公里，而你最近平均约 ${history.avg_distance_km} 公里，训练负荷从一开始就不同。` : `这次从 ${Math.round(alt[0] || 0)} 米起步，双腿还新鲜，路线会很快显露今天的风格。`
-    ) },
-    { idx: climbIdx, type: "warning", title: chooseTitle(["Torque Check", "Power Patch", "Climb Bite"], ["扭矩检查", "力量区间", "爬坡咬点"]), tip: localText(
-      `This is the steepest uphill patch at ${round1((dist[climbIdx] || 0) / 1000)}km. Grade hits ${round1(grade[climbIdx] || 0)}%, and the run asks for force rather than rhythm here.`,
-      `这里是最陡的上坡段，位于 ${round1((dist[climbIdx] || 0) / 1000)} 公里处。坡度达到 ${round1(grade[climbIdx] || 0)}%，这里更考验力量，而不是节奏。`
-    ) },
-    { idx: summitIdx, type: "target", title: chooseTitle(["Route Pivot", "High Point", "Turn Of The Run"], ["路线转折", "全程高点", "节奏拐点"]), tip: localText(
-      `The route crests here at ${Math.round(alt[summitIdx] || 0)}m. This is less about “the summit” and more about where the whole run changes character.`,
-      `路线在这里来到 ${Math.round(alt[summitIdx] || 0)} 米的高点。它不只是“最高点”，更是整次跑步性格发生变化的位置。`
-    ) },
-    { idx: dropIdx, type: "critical", title: chooseTitle(["Free Speed", "Gravity Test", "Downhill Choice"], ["免费速度", "重力测试", "下坡选择"]), tip: localText(
-      `The steepest descent arrives here at ${round1(grade[dropIdx] || 0)}%. This section rewards confidence and punishes braking.`,
-      `最陡下坡出现在这里，坡度 ${round1(grade[dropIdx] || 0)}%。这段会奖励顺势而下，也会惩罚用力刹车。`
-    ) },
-    { idx: fastIdx, type: "target", title: chooseTitle(["Release Point", "Stride Opens", "Fast Window"], ["释放点", "步幅打开", "极速窗口"]), tip: localText(
-      `Your quickest section appears here at about ${paceStr(vel[fastIdx])}/km. The route finally gives you permission to move.`,
-      `你最快的区间出现在这里，约 ${paceStr(vel[fastIdx])}/公里。路线终于允许你把速度放出来。`
-    ) },
-    { idx: hasHR ? hrIdx : slowIdx, type: "warning", title: chooseTitle(["Stress Marker", "Cost Of The Run", "Pressure Point"], ["压力标记", "代价时刻", "受压点"]), tip: localText(
-      hasHR ? `Heart rate tops out at ${hr[hrIdx]} here, which is the physiological price tag of this run.` : `This is the slowest late-run patch, a good proxy for where the cost of the run starts showing up in the legs.`,
-      hasHR ? `这里的心率来到峰值 ${hr[hrIdx]}，可以理解为这次跑步付出的生理代价。` : `这里是后程最慢的一段，可以把它理解为疲劳真正开始落到双腿上的位置。`
-    ) },
-    { idx: n - 1, type: "neutral", title: chooseTitle(["Finish Read", "Exit Signal", "Closing Note"], ["收尾读数", "结束信号", "结尾注脚"]), tip: localText(
-      histPace && paceNow ? `You close at ${runData.pace}/km overall, ${paceNow < histPace ? "quicker" : paceNow > histPace ? "easier" : "almost identical"} than your recent ${history.avg_pace}/km baseline.` : `The run closes with enough information to tell a story, even without forcing it into fixed milestones.`,
-      histPace && paceNow ? `最终均配 ${runData.pace}/公里，和你最近 ${history.avg_pace}/公里 的基线相比，今天${paceNow < histPace ? "更快" : paceNow > histPace ? "更轻松" : "几乎一致"}。` : `这次结束时已经留下足够多的信息，没必要再硬套固定里程碑。`
-    ) }
-  ];
   return finalizeWaypoints(candidatePool, runData);
+}
+function extractMessageText(message) {
+  if (!message) return "";
+  if (typeof message.content === "string") return message.content;
+  if (Array.isArray(message.content)) {
+    return message.content
+      .map(part => {
+        if (typeof part === "string") return part;
+        if (part && typeof part.text === "string") return part.text;
+        return "";
+      })
+      .join("\n");
+  }
+  return "";
 }
 async function generateLLMWaypoints(runData, recentRuns) {
   if (!openRouterKey) return null;
   const context = {
-    current_run: buildCompressedRunContext(runData),
+    current_run: buildLLMRunContext(runData),
     recent_history: buildRecentHistory(recentRuns),
     instructions: {
       choose_exactly: 7,
-      rule: "Choose 7 diverse moments from the whole run. They do NOT need to include start, finish, summit, fastest, or max heart rate unless those are genuinely interesting.",
+      rule: "Choose 7 diverse moments from the whole run telemetry. Do NOT default to start, finish, summit, max HR, fastest split, or steepest grade unless they are genuinely the most interesting moments in this specific run.",
       output_schema: {
         waypoints: [
           {
@@ -400,11 +443,13 @@ async function generateLLMWaypoints(runData, recentRuns) {
   };
   const prompt = [
     "You are writing elite running-coach annotations for a single run.",
-    "Use the full run context and recent history provided.",
+    "Use the run telemetry and recent history provided.",
     "Choose exactly 7 interesting moments anywhere in the run.",
-    "Do not force generic categories like start/summit/max HR unless they are truly the most interesting points.",
-    "Make each title and note specific to this run, not a template.",
-    "Return JSON only."
+    "Avoid repeated template titles such as First Impression, Stress Marker, Climb Bite, High Point, Gravity Test, Release Point, or Closing Note.",
+    "Do not force generic categories like start, finish, summit, max HR, fastest split, or steepest grade unless they are truly the most interesting points in this specific run.",
+    "Each title should sound bespoke to this run.",
+    "Each note should reference what is happening around that point in the telemetry.",
+    "Return valid JSON only."
   ].join(" ");
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
@@ -412,11 +457,14 @@ async function generateLLMWaypoints(runData, recentRuns) {
         method: "POST",
         headers: {
           Authorization: `Bearer ${openRouterKey}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://sharkroman.github.io/runwithclaude",
+          "X-Title": "Run With Claude"
         },
         body: JSON.stringify({
           model: openRouterModel,
-          temperature: 0.7,
+          temperature: 1,
+          response_format: { type: "json_object" },
           messages: [
             { role: "system", content: prompt },
             { role: "user", content: JSON.stringify(context) }
@@ -428,7 +476,7 @@ async function generateLLMWaypoints(runData, recentRuns) {
         console.error(`LLM waypoint HTTP ${res.status} (attempt ${attempt}): ${err.slice(0, 300)}`);
       } else {
         const data = await res.json();
-        const text = data?.choices?.[0]?.message?.content || "";
+        const text = extractMessageText(data?.choices?.[0]?.message);
         const parsed = parseJsonBlock(text);
         const normalized = normalizeWaypoints(parsed, runData);
         if (normalized) return finalizeWaypoints(normalized, runData);
@@ -453,13 +501,13 @@ async function generateWaypointBundle(runData, recentRuns) {
       }
     };
   }
-  const fallback = heuristicWaypoints(runData, recentRuns);
+  const fallback = emergencyFallbackWaypoints(runData, recentRuns);
   if (!fallback) return null;
   return {
     waypoints: fallback,
     ai_tips: fallback.map(w => w.tip),
     ai_generation: {
-      mode: "heuristic_fallback",
+      mode: "emergency_fallback",
       history_count: recentRuns.length
     }
   };
