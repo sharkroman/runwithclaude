@@ -6,7 +6,12 @@ GitHub Actions and committed to `runs/`.
 
 ## Layout
 - `index.html`: the whole dashboard (single file, EN/ZH via `data-i18n` + `setLang`).
-  Loads `runs/index.json`, then `runs/<id>.json`. Reads pins from `D.meta.waypoints`.
+  Loads `runs/index.json`, then `runs/<id>.json` (`?id=`, default newest). Reads pins from `D.meta.waypoints`.
+- `races/<slug>/`: race roadbooks (`index.html` single file with embedded `routeData` JSON incl. a base64
+  terrain image, plus the course `.gpx`). Never print the whole file; the data line is >1 MB. Uses the
+  dashboard palette/fonts and the shared `localStorage` key `lang`; links back with `../../`.
+  The dashboard's `RACES` list drives the race card (shown until 7 days after race day).
+  Catalina is an archived MapMyRun route, not the confirmed course: keep that disclaimer.
 - `tools/backfill.js`: fetches Strava activities and streams, builds run JSON, and generates
   waypoints through OpenRouter (falls back to `emergencyFallbackWaypoints` with no key or on errors).
 - `.github/workflows/process-run.yml`: runs `backfill.js` on `repository_dispatch`
@@ -32,7 +37,7 @@ No package.json; Node 20 built-ins only.
 Read from env only (see `.env.example`; a local `.env` is auto-loaded and gitignored).
 Repo secrets: `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, `STRAVA_REFRESH_TOKEN`,
 `OPENROUTER_API_KEY`, `GH_PAT` (fine-grained, this repo, Secrets read/write).
-Never hardcode credentials. The dashboard chat uses an OpenRouter key the user types; never store it.
+Never hardcode credentials. The dashboard chat uses an OpenRouter key the user types; it is kept only in sessionStorage, never localStorage.
 
 ## Conventions
 - Workflow files: LF, no BOM. Pass event inputs through `env:`, never `${{ }}` inside `run:`.

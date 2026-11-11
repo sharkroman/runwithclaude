@@ -88,12 +88,16 @@
     font-weight: 600;
   }
   .lang-btn.active { background: var(--txt); color: #fff; }
-  #chat-history div div p { margin-bottom: 8px; }
-  #chat-history div div ul, #chat-history div div ol { margin-left: 20px; margin-bottom: 8px; }
-  #chat-history div div code { background: var(--panel2); padding: 2px 4px; border-radius: 4px; font-family: monospace; }
-  #chat-history div div pre { background: var(--panel2); padding: 8px; border-radius: 4px; overflow-x: auto; margin-bottom: 8px; }
+  .race{display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;margin:0 60px 4px 0;
+        border-left:3px solid var(--amber);transition:border-color .2s, transform .2s}
+  .race:hover{border-color:var(--amber);transform:translateY(-1px)}
+  .race .rk{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--amber);font-weight:700}
+  .race .rn{font-size:15px;font-weight:700;margin-top:1px}
+  .race .rm{font-size:11px;color:var(--dim);margin-top:2px}
+  .race .rc{margin-left:auto;text-align:center;flex:0 0 auto}
+  .race .rc b{display:block;font-size:22px;line-height:1;color:var(--amber)}
+  .race .rc small{font-size:9.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.6px}
 </style>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -101,6 +105,8 @@
     <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
     <button class="lang-btn" id="btn-zh" onclick="setLang('zh')">ZH</button>
   </div>
+
+  <a class="card race" id="race-card" hidden></a>
 
   <div id="status" data-i18n="loading">Loading run…</div>
   <div id="content" style="display:none">
@@ -150,12 +156,11 @@
       <label style="display:block; margin-bottom:6px;"><span data-i18n="api_key">API Key:</span> <input type="password" id="api-key" placeholder="sk-or-v1-..." style="width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--txt); margin-top: 4px;"></label>
       <label style="display:block;"><span data-i18n="model">Model:</span> 
         <select id="chat-model" style="width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--txt); margin-top: 4px; font-family: inherit;">
-          <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+          <option value="anthropic/claude-sonnet-5.5">Claude Sonnet 5.5</option>
+          <option value="anthropic/claude-opus-5.5">Claude Opus 5.5</option>
+          <option value="anthropic/claude-haiku-5.5">Claude Haiku 5.5</option>
           <option value="openai/gpt-4o">GPT-4o</option>
-          <option value="openai/o1">OpenAI o1</option>
           <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
-          <option value="moonshotai/kimi-latest">Kimi (Latest)</option>
-          <option value="anthropic/claude-opus-4.8">Claude Opus 4.8</option>
           <option value="meta-llama/llama-4-maverick">Llama 4 Maverick</option>
           <option value="openrouter/auto">OpenRouter Auto (Best Available)</option>
         </select>
@@ -193,7 +198,10 @@ const I18N = {
     source: "Source: Strava activity",
     footer_text: "Streams fetched at high resolution via a Make scenario writing to GitHub.<br>Contours are synthesized from track altitude via IDW interpolation (10 m interval); route color = heart rate (green ≤145 → red ≥175 bpm).",
     chat_title: "AI Coach (OpenRouter)", api_key: "API Key:", model: "Model:", chat_placeholder: "Ask about your run...", send: "Send",
-    select_run: "-- Select a previous run --"
+    select_run: "-- Select a previous run --",
+    race_next: "Next race", race_done: "Race roadbook", race_days: "days", race_today: "Race day",
+    race_open: "Course, pacing & photo stops →",
+    key_note: "Kept only in this browser tab; cleared when you close it."
   },
   zh: {
     loading: "正在加载数据…", error: "无法加载数据",
@@ -214,9 +222,38 @@ const I18N = {
     source: "数据来源: Strava 活动",
     footer_text: "通过 Make 自动化获取高精度轨迹数据并写入 GitHub。<br>等高线通过海拔数据反向插值生成 (10米等高距)；轨迹颜色 = 心率 (绿色 ≤145 → 红色 ≥175 bpm)。",
     chat_title: "AI 教练 (OpenRouter)", api_key: "API 密钥:", model: "模型:", chat_placeholder: "询问关于这次跑步的建议...", send: "发送",
-    select_run: "-- 选择历史记录 --"
+    select_run: "-- 选择历史记录 --",
+    race_next: "下一场比赛", race_done: "赛事路书", race_days: "天", race_today: "比赛日",
+    race_open: "路线、配速与摄影点 →",
+    key_note: "只保存在当前标签页，关闭后即清除。"
   }
 };
+
+// Race roadbooks under races/<slug>/. The card shows from now until a week after race day.
+const RACES = [
+  { slug: "catalina-10k-2026-11-14", date: "2026-11-14",
+    name: { en: "Catalina 10K", zh: "Catalina 10K" },
+    place: { en: "Avalon, Catalina Island · Nov 14", zh: "加州 Catalina 岛 Avalon · 11月14日" } }
+];
+function renderRaceCard() {
+  const card = document.getElementById("race-card");
+  const today = new Date(); today.setHours(0,0,0,0);
+  const race = RACES
+    .map(r => ({ ...r, days: Math.round((new Date(r.date + "T00:00:00") - today) / 86400000) }))
+    .filter(r => r.days >= -7)
+    .sort((a, b) => a.days - b.days)[0];
+  if (!race) { card.hidden = true; return; }
+  card.href = `races/${race.slug}/`;
+  const count = race.days > 0
+    ? `<b class="mono">${race.days}</b><small>${t("race_days")}</small>`
+    : race.days === 0 ? `<b>🏁</b><small>${t("race_today")}</small>` : `<b>✓</b>`;
+  card.innerHTML =
+    `<div><div class="rk">${race.days >= 0 ? t("race_next") : t("race_done")}</div>` +
+    `<div class="rn">${race.name[LANG]}</div><div class="rm">${race.place[LANG]}</div>` +
+    `<div class="rm" style="color:var(--txt)">${t("race_open")}</div></div>` +
+    `<div class="rc">${count}</div>`;
+  card.hidden = false;
+}
 
 let LANG = localStorage.getItem("lang") || "zh";
 function t(key) { return I18N[LANG][key] || key; }
@@ -226,14 +263,15 @@ function setLang(l) {
   document.getElementById("btn-zh").className = "lang-btn" + (l==="zh"?" active":"");
   document.querySelectorAll("[data-i18n]").forEach(el => { el.innerHTML = t(el.getAttribute("data-i18n")); });
   document.querySelectorAll("[data-placeholder-i18n]").forEach(el => { el.placeholder = t(el.getAttribute("data-placeholder-i18n")); });
-  
+  renderRaceCard();
+
   if (window.runsIndex) populateRunSelector(window.runsIndex);
   if(D) { renderMeta(); renderAnnotations(); renderZones(); }
 }
 
-const DEFAULT_ID = "19414064627";
+// With no ?id=, show the newest run from runs/index.json.
 const qs = new URLSearchParams(location.search);
-const RUN_ID = qs.get("id") || DEFAULT_ID;
+let RUN_ID = qs.get("id");
 
 const TCOLOR = {neutral:"#3B71CA", target:"#2E8540", warning:"#D97757", critical:"#C23B22"};
 
@@ -252,13 +290,16 @@ function populateRunSelector(indexData) {
   });
 }
 
-// Fetch run index
-fetch('runs/index.json', {cache:"no-cache"})
+// Fetch run index (also decides the default run)
+const runsIndexReady = fetch('runs/index.json', {cache:"no-cache"})
   .then(r => r.ok ? r.json() : [])
+  .catch(() => [])
   .then(data => {
     window.runsIndex = data;
+    if (!RUN_ID && data.length) RUN_ID = String(data[0].id);
     populateRunSelector(data);
-  }).catch(() => {});
+    return data;
+  });
 
 document.getElementById("run-selector").addEventListener("change", (e) => {
   if(e.target.value) window.location.search = '?id=' + e.target.value;
@@ -680,12 +721,18 @@ const chatInput = document.getElementById("chat-input");
 const chatSend = document.getElementById("chat-send");
 const chatHistory = document.getElementById("chat-history");
 
-apiKeyInput.value = localStorage.getItem("openrouter_key") || "";
-apiKeyInput.addEventListener("change", () => localStorage.setItem("openrouter_key", apiKeyInput.value));
+// The key lives only in sessionStorage (this tab), never localStorage, which every page
+// on sharkroman.github.io can read. Remove any key an older version saved there.
+try { localStorage.removeItem("openrouter_key"); } catch {}
+try { apiKeyInput.value = sessionStorage.getItem("openrouter_key") || ""; } catch {}
+apiKeyInput.addEventListener("change", () => { try { sessionStorage.setItem("openrouter_key", apiKeyInput.value); } catch {} });
+apiKeyInput.title = t("key_note");
 
 const modelSelect = document.getElementById("chat-model");
 if (modelSelect) {
-  modelSelect.value = localStorage.getItem("openrouter_model") || "anthropic/claude-3.5-sonnet";
+  const saved = localStorage.getItem("openrouter_model");
+  const known = [...modelSelect.options].some(o => o.value === saved);
+  modelSelect.value = known ? saved : "anthropic/claude-sonnet-5.5";
   modelSelect.addEventListener("change", () => localStorage.setItem("openrouter_model", modelSelect.value));
 }
 
@@ -784,7 +831,9 @@ function boot(data){
   renderProfile();
 }
 
-fetch(`runs/${RUN_ID}.json?t=${new Date().getTime()}`, {cache:"no-cache"})
+runsIndexReady
+  .then(() => { if (!RUN_ID) throw new Error("no runs in runs/index.json"); })
+  .then(() => fetch(`runs/${RUN_ID}.json?t=${new Date().getTime()}`, {cache:"no-cache"}))
   .then(r=>{ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
   .then(boot)
   .catch(err=>{
