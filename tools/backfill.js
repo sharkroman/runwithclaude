@@ -13,7 +13,7 @@ if (fs.existsSync(ENV_FILE) && typeof process.loadEnvFile === "function") {
 }
 
 const openRouterKey = process.env.OPENROUTER_API_KEY;
-const openRouterModel = process.env.OPENROUTER_MODEL || "openai/gpt-4o-mini";
+const openRouterModel = process.env.OPENROUTER_MODEL || "anthropic/claude-haiku-5.5";
 
 // Strava credentials are read lazily so `tips` mode works without them.
 function getStravaCredentials() {
