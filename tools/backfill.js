@@ -1,17 +1,42 @@
 const fs = require("fs");
 const path = require("path");
 
-const OUT_DIR = path.join(__dirname, "..", "runs");
-const TOKEN_FILE = path.join(__dirname, "..", ".strava-refresh-token");
-const clientId = process.env.STRAVA_CLIENT_ID || "266235";
-const clientSecret = process.env.STRAVA_CLIENT_SECRET || "41af975bc552294a9b213d3d6d944d8d9607da07";
-const fallbackRefreshToken = "df3c27549862d8ad028df413b84ae987011a9305";
-const storedToken = fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, "utf8").trim() : null;
-const refreshToken = process.env.STRAVA_REFRESH_TOKEN || storedToken || fallbackRefreshToken;
+const ROOT_DIR = path.join(__dirname, "..");
+const OUT_DIR = path.join(ROOT_DIR, "runs");
+const TOKEN_FILE = path.join(ROOT_DIR, ".strava-refresh-token");
+
+// Load a local .env for development (never committed; see .env.example).
+// In GitHub Actions the values come from repository secrets instead.
+const ENV_FILE = path.join(ROOT_DIR, ".env");
+if (fs.existsSync(ENV_FILE) && typeof process.loadEnvFile === "function") {
+  process.loadEnvFile(ENV_FILE);
+}
+
 const openRouterKey = process.env.OPENROUTER_API_KEY;
 const openRouterModel = process.env.OPENROUTER_MODEL || "openai/gpt-4o-mini";
 
+// Strava credentials are read lazily so `tips` mode works without them.
+function getStravaCredentials() {
+  const clientId = process.env.STRAVA_CLIENT_ID;
+  const clientSecret = process.env.STRAVA_CLIENT_SECRET;
+  const storedToken = fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, "utf8").trim() : null;
+  const refreshToken = process.env.STRAVA_REFRESH_TOKEN || storedToken;
+  const missing = [
+    !clientId && "STRAVA_CLIENT_ID",
+    !clientSecret && "STRAVA_CLIENT_SECRET",
+    !refreshToken && "STRAVA_REFRESH_TOKEN",
+  ].filter(Boolean);
+  if (missing.length) {
+    throw new Error(
+      `Missing Strava credentials: ${missing.join(", ")}. ` +
+      "Set them as environment variables (GitHub repo secrets in Actions, or a local .env copied from .env.example)."
+    );
+  }
+  return { clientId, clientSecret, refreshToken };
+}
+
 async function getAccessToken() {
+  const { clientId, clientSecret, refreshToken } = getStravaCredentials();
   const res = await fetch("https://www.strava.com/oauth/token", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

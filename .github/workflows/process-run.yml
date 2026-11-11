@@ -1,4 +1,4 @@
-﻿name: Process Strava Run
+name: Process Strava Run
 
 on:
   repository_dispatch:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       activity_id:
-        description: 'Activity ID, or "tips" to regenerate AI tips (optional)'
+        description: 'Activity ID, "tips", or "tips:<id>" (optional; empty fetches the 10 most recent)'
         required: false
 
 permissions:
@@ -30,13 +30,18 @@ jobs:
           STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
           STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Passed via env (never interpolated into the script) to avoid shell injection.
+          DISPATCH_ACTIVITY_ID: ${{ github.event.client_payload.activity_id }}
+          INPUT_ACTIVITY_ID: ${{ github.event.inputs.activity_id }}
         run: |
-          if [ -n "${{ github.event.client_payload.activity_id }}" ]; then
-            node tools/backfill.js "${{ github.event.client_payload.activity_id }}"
-          elif [ -n "${{ github.event.inputs.activity_id }}" ]; then
-            node tools/backfill.js "${{ github.event.inputs.activity_id }}"
-          else
+          ACTIVITY_ID="${DISPATCH_ACTIVITY_ID:-$INPUT_ACTIVITY_ID}"
+          if [ -z "$ACTIVITY_ID" ]; then
             node tools/backfill.js
+          elif [[ "$ACTIVITY_ID" =~ ^([0-9]+|tips|tips:[0-9]+)$ ]]; then
+            node tools/backfill.js "$ACTIVITY_ID"
+          else
+            echo "::error::Invalid activity_id. Expected digits, 'tips', or 'tips:<digits>'."
+            exit 1
           fi
 
       - name: Commit and Push Changes
@@ -47,18 +52,27 @@ jobs:
           git commit -m "Auto-update Strava runs via Action" || exit 0
           git push
 
+      # Runs even if the fetch failed: Strava may have rotated the token before the failure,
+      # and losing the new token would break every later run.
       - name: Sync rotated Strava token to repo secret
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ -f .strava-refresh-token ]; then
-            if [ -n "$GH_TOKEN" ]; then
-              gh secret set STRAVA_REFRESH_TOKEN --body "$(cat .strava-refresh-token)" --repo ${{ github.repository }} && echo "Secret updated with rotated token." || echo "::warning::Failed to update STRAVA_REFRESH_TOKEN secret."
-            else
-              echo "::warning::Token rotated but GH_PAT secret is missing; update STRAVA_REFRESH_TOKEN manually."
-            fi
-            rm -f .strava-refresh-token
-          else
+          if [ ! -f .strava-refresh-token ]; then
             echo "No token rotation detected."
+            exit 0
           fi
-
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Strava rotated the refresh token but the GH_PAT secret is missing. Update STRAVA_REFRESH_TOKEN manually or the next run will fail."
+            rm -f .strava-refresh-token
+            exit 1
+          fi
+          if ! gh secret set STRAVA_REFRESH_TOKEN --body "$(cat .strava-refresh-token)" --repo "$REPO"; then
+            echo "::error::Failed to update STRAVA_REFRESH_TOKEN secret. Check that GH_PAT has Secrets read/write on this repo."
+            rm -f .strava-refresh-token
+            exit 1
+          fi
+          rm -f .strava-refresh-token
+          echo "Secret updated with rotated token."
