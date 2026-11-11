@@ -12,13 +12,24 @@ if (fs.existsSync(ENV_FILE) && typeof process.loadEnvFile === "function") {
   process.loadEnvFile(ENV_FILE);
 }
 
-// AI coach provider: the Anthropic API when ANTHROPIC_API_KEY is set, else OpenRouter.
+// AI coach provider, first key that is set wins: Amazon Bedrock (Anthropic Messages
+// format, Bedrock API key as a bearer token), the Anthropic API, then OpenRouter.
+const bedrockKey = process.env.BEDROCK_API_KEY;
+const bedrockModel = process.env.BEDROCK_MODEL || "au.anthropic.claude-sonnet-4-6";
+const bedrockUrl = process.env.BEDROCK_MESSAGES_URL
+  || "https://bedrock-runtime.ap-southeast-2.amazonaws.com/anthropic/v1/messages";
 const anthropicKey = process.env.ANTHROPIC_API_KEY;
 const anthropicModel = process.env.ANTHROPIC_MODEL || "claude-haiku-5-5";
 const openRouterKey = process.env.OPENROUTER_API_KEY;
 const openRouterModel = process.env.OPENROUTER_MODEL || "anthropic/claude-haiku-5.5";
-const llm = anthropicKey
-  ? { provider: "anthropic", label: "Anthropic", key: anthropicKey, model: anthropicModel }
+const llm = bedrockKey
+  ? { provider: "anthropic", label: "Bedrock", key: bedrockKey, model: bedrockModel, url: bedrockUrl,
+      // Bedrock accepts API version 2026-10-21 only for Claude 4.7+, so pin the older one.
+      headers: { Authorization: `Bearer ${bedrockKey}`, "anthropic-version": "2023-06-01" } }
+  : anthropicKey
+  ? { provider: "anthropic", label: "Anthropic", key: anthropicKey, model: anthropicModel,
+      url: "https://api.anthropic.com/v1/messages",
+      headers: { "x-api-key": anthropicKey, "anthropic-version": "2026-10-21" } }
   : { provider: "openrouter", label: "OpenRouter", key: openRouterKey, model: openRouterModel };
 
 // Strava credentials are read lazily so `tips` mode works without them.
@@ -469,13 +480,9 @@ let warnedMissingKey = false;
 // Returns { waypoints } on success, { error } with a short reason otherwise.
 function callLLM(system, user) {
   if (llm.provider === "anthropic") {
-    return fetch("https://api.anthropic.com/v1/messages", {
+    return fetch(llm.url, {
       method: "POST",
-      headers: {
-        "x-api-key": llm.key,
-        "anthropic-version": "2026-10-21",
-        "Content-Type": "application/json"
-      },
+      headers: { ...llm.headers, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: llm.model,
         max_tokens: 16000,
@@ -517,7 +524,7 @@ function llmResponseText(data) {
 }
 async function generateLLMWaypoints(runData, recentRuns) {
   if (!llm.key) {
-    if (!warnedMissingKey) warnFallback("Neither ANTHROPIC_API_KEY nor OPENROUTER_API_KEY is set, so the AI coach is skipped");
+    if (!warnedMissingKey) warnFallback("No BEDROCK_API_KEY, ANTHROPIC_API_KEY or OPENROUTER_API_KEY is set, so the AI coach is skipped");
     warnedMissingKey = true;
     return { error: "missing_api_key" };
   }
