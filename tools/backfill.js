@@ -583,8 +583,8 @@ async function generateLLMWaypoints(runData, recentRuns) {
   return { error };
 }
 async function generateWaypointBundle(runData, recentRuns) {
-  const llm = await generateLLMWaypoints(runData, recentRuns);
-  const llmWaypoints = llm.waypoints;
+  const result = await generateLLMWaypoints(runData, recentRuns);
+  const llmWaypoints = result.waypoints;
   if (llmWaypoints) {
     return {
       waypoints: llmWaypoints,
@@ -603,7 +603,7 @@ async function generateWaypointBundle(runData, recentRuns) {
     ai_tips: fallback.map(w => w.tip),
     ai_generation: {
       mode: "emergency_fallback",
-      fallback_reason: llm.error,
+      fallback_reason: result.error,
       history_count: recentRuns.length
     }
   };
