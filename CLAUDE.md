@@ -13,7 +13,7 @@ GitHub Actions and committed to `runs/`.
   The dashboard's `RACES` list drives the race card (shown until 7 days after race day).
   Catalina is an archived MapMyRun route, not the confirmed course: keep that disclaimer.
 - `tools/backfill.js`: fetches Strava activities and streams, builds run JSON, and generates
-  waypoints through OpenRouter (falls back to `emergencyFallbackWaypoints` with no key or on errors).
+  waypoints through the Anthropic API when `ANTHROPIC_API_KEY` is set, else OpenRouter (falls back to `emergencyFallbackWaypoints` with no key or on errors).
 - `.github/workflows/process-run.yml`: runs `backfill.js` on `repository_dispatch`
   (`new_strava_run`, payload `activity_id`) or a manual `workflow_dispatch`, commits `runs/`,
   and syncs the rotated Strava refresh token back to the repo secret through `GH_PAT`.
@@ -30,13 +30,13 @@ No package.json; Node 20 built-ins only.
 - `node tools/backfill.js`: fetch the 10 most recent activities and skip IDs already saved.
 - `node tools/backfill.js <activityId>`: (re)process one activity.
 - `node tools/backfill.js tips` / `tips:<id>`: regenerate waypoints for every saved run, or for one.
-  This calls OpenRouter and rewrites run files, so ask before running it.
+  This calls the LLM API and rewrites run files, so ask before running it.
 - Preview: `python3 -m http.server`, then open http://localhost:8000.
 
 ## Secrets / env
 Read from env only (see `.env.example`; a local `.env` is auto-loaded and gitignored).
 Repo secrets: `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, `STRAVA_REFRESH_TOKEN`,
-`OPENROUTER_API_KEY`, `GH_PAT` (fine-grained, this repo, Secrets read/write).
+`ANTHROPIC_API_KEY` (optional, preferred), `OPENROUTER_API_KEY`, `GH_PAT` (fine-grained, this repo, Secrets read/write).
 Never hardcode credentials. The dashboard chat uses an OpenRouter key the user types; it is kept only in sessionStorage, never localStorage.
 
 ## Conventions

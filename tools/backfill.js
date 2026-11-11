@@ -12,8 +12,14 @@ if (fs.existsSync(ENV_FILE) && typeof process.loadEnvFile === "function") {
   process.loadEnvFile(ENV_FILE);
 }
 
+// AI coach provider: the Anthropic API when ANTHROPIC_API_KEY is set, else OpenRouter.
+const anthropicKey = process.env.ANTHROPIC_API_KEY;
+const anthropicModel = process.env.ANTHROPIC_MODEL || "claude-haiku-5-5";
 const openRouterKey = process.env.OPENROUTER_API_KEY;
 const openRouterModel = process.env.OPENROUTER_MODEL || "anthropic/claude-haiku-5.5";
+const llm = anthropicKey
+  ? { provider: "anthropic", label: "Anthropic", key: anthropicKey, model: anthropicModel }
+  : { provider: "openrouter", label: "OpenRouter", key: openRouterKey, model: openRouterModel };
 
 // Strava credentials are read lazily so `tips` mode works without them.
 function getStravaCredentials() {
@@ -461,9 +467,57 @@ function warnFallback(reason) {
 }
 let warnedMissingKey = false;
 // Returns { waypoints } on success, { error } with a short reason otherwise.
+function callLLM(system, user) {
+  if (llm.provider === "anthropic") {
+    return fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": llm.key,
+        "anthropic-version": "2026-10-21",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: llm.model,
+        max_tokens: 16000,
+        system,
+        messages: [{ role: "user", content: user }]
+      })
+    });
+  }
+  return fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${llm.key}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://sharkroman.github.io/runwithclaude",
+      "X-Title": "Run With Claude"
+    },
+    body: JSON.stringify({
+      model: llm.model,
+      temperature: 1,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user }
+      ]
+    })
+  });
+}
+// Anthropic returns content blocks (thinking + text); keep only the text.
+// A refusal or max_tokens stop yields no usable JSON, so log it and return "".
+function llmResponseText(data) {
+  if (llm.provider === "anthropic") {
+    if (data?.stop_reason && data.stop_reason !== "end_turn") {
+      console.error(`LLM stop_reason: ${data.stop_reason}`);
+      if (data.stop_reason === "refusal") return "";
+    }
+    return (data?.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+  }
+  return extractMessageText(data?.choices?.[0]?.message);
+}
 async function generateLLMWaypoints(runData, recentRuns) {
-  if (!openRouterKey) {
-    if (!warnedMissingKey) warnFallback("OPENROUTER_API_KEY is not set, so the AI coach is skipped");
+  if (!llm.key) {
+    if (!warnedMissingKey) warnFallback("Neither ANTHROPIC_API_KEY nor OPENROUTER_API_KEY is set, so the AI coach is skipped");
     warnedMissingKey = true;
     return { error: "missing_api_key" };
   }
@@ -499,31 +553,14 @@ async function generateLLMWaypoints(runData, recentRuns) {
   ].join(" ");
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${openRouterKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://sharkroman.github.io/runwithclaude",
-          "X-Title": "Run With Claude"
-        },
-        body: JSON.stringify({
-          model: openRouterModel,
-          temperature: 1,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: prompt },
-            { role: "user", content: JSON.stringify(context) }
-          ]
-        })
-      });
+      const res = await callLLM(prompt, JSON.stringify(context));
       if (!res.ok) {
         const err = await res.text();
         console.error(`LLM waypoint HTTP ${res.status} (attempt ${attempt}): ${err.slice(0, 300)}`);
         error = `http_${res.status}`;
       } else {
         const data = await res.json();
-        const text = extractMessageText(data?.choices?.[0]?.message);
+        const text = llmResponseText(data);
         const parsed = parseJsonBlock(text);
         const normalized = normalizeWaypoints(parsed, runData);
         if (normalized) return { waypoints: finalizeWaypoints(normalized, runData) };
@@ -535,7 +572,7 @@ async function generateLLMWaypoints(runData, recentRuns) {
       error = "fetch_error";
     }
   }
-  warnFallback(`OpenRouter call failed for run ${runData.id} (${error})`);
+  warnFallback(`${llm.label} call failed for run ${runData.id} (${error})`);
   return { error };
 }
 async function generateWaypointBundle(runData, recentRuns) {
@@ -547,7 +584,7 @@ async function generateWaypointBundle(runData, recentRuns) {
       ai_tips: llmWaypoints.map(w => w.tip),
       ai_generation: {
         mode: "llm",
-        model: openRouterModel,
+        model: llm.model,
         history_count: recentRuns.length
       }
     };
