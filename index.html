@@ -142,7 +142,7 @@
 
     <div class="col col-main">
     <div class="card o-map">
-      <h2 data-i18n="route">Route · HR-scaled track on synthesized contours (10 m)</h2>
+      <h2><span data-i18n="route">Route · heart-rate track on terrain contours</span> <span id="contour-note"></span></h2>
       <div id="map-container">
         <svg id="map" role="img" aria-label="Contour map with heart-rate colored route" style="touch-action:none;"></svg>
         <div id="map-tooltip"></div>
@@ -187,7 +187,7 @@
 const I18N = {
   en: {
     loading: "Loading run…", error: "Could not load run",
-    route: "Route · HR-scaled track on synthesized contours (10 m)",
+    route: "Route · heart-rate track on terrain contours", contour_dem: "DEM", contour_track: "from track altitude",
     elev_hr: "Elevation & heart rate", summary: "Summary", zones: "Time in HR zone",
     elevation: "elevation", heart_rate: "heart rate", pins: "dots = coaching pins",
     start: "START", effort: "EFFORT BUILDS", mid: "MID CLIMB", summit: "SUMMIT",
@@ -202,7 +202,7 @@ const I18N = {
     fade_det: "Pace bleeds back as the descent flattens and fatigue lands. Keep turnover up through the final rollers.",
     finish_det: "Back near the trailhead. A steady out-and-back climb.",
     source: "Source: Strava activity",
-    footer_text: "Streams fetched at high resolution from Strava by a GitHub Actions workflow.<br>Contours are synthesized from track altitude via IDW interpolation (10 m interval); route color = heart rate (green ≤145 → red ≥175 bpm).",
+    footer_text: "Streams fetched at high resolution from Strava by a GitHub Actions workflow.<br>Contours come from public Terrarium DEM tiles (© Mapzen, USGS, NOAA and others; <a href=\"https://github.com/tilezen/joerd/blob/master/docs/attribution.md\">credits</a>); the interval adapts to the terrain. Route color = heart rate (green ≤145 → red ≥175 bpm).",
     chat_title: "AI Coach (OpenRouter)", api_key: "API Key:", model: "Model:", chat_placeholder: "Ask about your run...", send: "Send",
     select_run: "-- Select a previous run --",
     race_next: "Next race", race_done: "Race roadbook", race_days: "days", race_today: "Race day",
@@ -211,7 +211,7 @@ const I18N = {
   },
   zh: {
     loading: "正在加载数据…", error: "无法加载数据",
-    route: "路线 · 基于心率着色的等高线轨迹 (10米)",
+    route: "路线 · 心率着色轨迹与地形等高线", contour_dem: "DEM 地形", contour_track: "由轨迹海拔推算",
     elev_hr: "海拔与心率曲线", summary: "数据摘要", zones: "心率区间时长",
     elevation: "海拔", heart_rate: "心率", pins: "圆点 = 关键分析点",
     start: "起点", effort: "发力期", mid: "半坡", summit: "顶峰",
@@ -226,7 +226,7 @@ const I18N = {
     fade_det: "随着下坡变缓和疲劳袭来，配速开始下降。在最后的起伏路段保持步频。",
     finish_det: "回到起点附近。一次稳定的折返爬升训练。",
     source: "数据来源: Strava 活动",
-    footer_text: "由 GitHub Actions 从 Strava 获取高精度轨迹数据。<br>等高线通过海拔数据反向插值生成 (10米等高距)；轨迹颜色 = 心率 (绿色 ≤145 → 红色 ≥175 bpm)。",
+    footer_text: "由 GitHub Actions 从 Strava 获取高精度轨迹数据。<br>等高线来自公开 Terrarium DEM 地形瓦片（© Mapzen、USGS、NOAA 等；<a href=\"https://github.com/tilezen/joerd/blob/master/docs/attribution.md\">数据来源</a>），等高距随地形自动调整。轨迹颜色 = 心率 (绿色 ≤145 → 红色 ≥175 bpm)。",
     chat_title: "AI 教练 (OpenRouter)", api_key: "API 密钥:", model: "模型:", chat_placeholder: "询问关于这次跑步的建议...", send: "发送",
     select_run: "-- 选择历史记录 --",
     race_next: "下一场比赛", race_done: "赛事路书", race_days: "天", race_today: "比赛日",
@@ -274,6 +274,7 @@ function setLang(l) {
   if (window.runsIndex) populateRunSelector(window.runsIndex);
   if(D) { renderMeta(); renderAnnotations(); renderZones(); }
   if (typeof chat !== "undefined") chat.setLang();
+  renderContourNote();
 }
 
 // With no ?id=, show the newest run from runs/index.json.
@@ -402,6 +403,98 @@ function buildField(){
   return {g,nx,ny,dx,dy};
 }
 
+// Real terrain: Terrarium DEM tiles (CORS-enabled public bucket), sampled on the same grid
+// as buildField(). Falls back to buildField() (track-altitude IDW) if tiles can't load.
+const TILE_URL = (z,x,y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+async function buildFieldDEM(){
+  const nx = 121, dx = PW/(nx-1), ny = Math.max(2, Math.round(PH/dx)+1), dy = PH/(ny-1);
+  const midLat = (latMin+latMax)/2, rad = Math.PI/180;
+  const tileX = (lng,z) => (lng+180)/360*2**z;
+  const tileY = (lat,z) => (1 - Math.log(Math.tan(lat*rad) + 1/Math.cos(lat*rad))/Math.PI)/2*2**z;
+  const west = lngMin-PAD/KX, east = lngMax+PAD/KX, north = latMax+PAD/KY, south = latMin-PAD/KY;
+  // Finest zoom (<=15) whose pixels are no smaller than a quarter grid cell, using at most 16 tiles.
+  let z = 15;
+  for (; z > 8; z--) {
+    const mpp = 156543.03*Math.cos(midLat*rad)/2**z;
+    const n = (Math.floor(tileX(east,z))-Math.floor(tileX(west,z))+1)*(Math.floor(tileY(south,z))-Math.floor(tileY(north,z))+1);
+    if (mpp >= dx/4 && n <= 16) break;
+  }
+  const tx0 = Math.floor(tileX(west,z)), tx1 = Math.floor(tileX(east,z));
+  const ty0 = Math.floor(tileY(north,z)), ty1 = Math.floor(tileY(south,z));
+  const cw = (tx1-tx0+1)*256, ch = (ty1-ty0+1)*256;
+  const canvas = document.createElement("canvas"); canvas.width = cw; canvas.height = ch;
+  const ctx = canvas.getContext("2d", {willReadFrequently:true});
+  const jobs = [];
+  for (let ty=ty0; ty<=ty1; ty++) for (let tx=tx0; tx<=tx1; tx++) {
+    jobs.push(new Promise((ok, fail) => {
+      const img = new Image(); img.crossOrigin = "anonymous";
+      img.onload = () => { ctx.drawImage(img, (tx-tx0)*256, (ty-ty0)*256); ok(); };
+      img.onerror = () => fail(new Error("DEM tile failed"));
+      img.src = TILE_URL(z,tx,ty);
+    }));
+  }
+  await Promise.all(jobs);
+  const px = ctx.getImageData(0,0,cw,ch).data;
+  const elevAt = (x,y) => { const i = (y*cw+x)*4; return px[i]*256 + px[i+1] + px[i+2]/256 - 32768; };
+  const g = [];
+  for (let j=0; j<ny; j++) {
+    const row = [];
+    for (let i=0; i<nx; i++) {
+      const lng = lngMin + (-PAD+i*dx)/KX, lat = latMax - (-PAD+j*dy)/KY;
+      const fx = Math.min(cw-1.001, Math.max(0, (tileX(lng,z)-tx0)*256-0.5));
+      const fy = Math.min(ch-1.001, Math.max(0, (tileY(lat,z)-ty0)*256-0.5));
+      const x0 = Math.floor(fx), y0 = Math.floor(fy), u = fx-x0, v = fy-y0;
+      row.push(elevAt(x0,y0)*(1-u)*(1-v) + elevAt(x0+1,y0)*u*(1-v) + elevAt(x0,y0+1)*(1-u)*v + elevAt(x0+1,y0+1)*u*v);
+    }
+    g.push(row);
+  }
+  // One light smoothing pass so 1-2 m contours don't zigzag on tile pixels.
+  const g2 = g.map(r=>r.slice());
+  for (let j=1;j<ny-1;j++) for (let i=1;i<nx-1;i++) g2[j][i] = (g[j][i]*4+g[j][i-1]+g[j][i+1]+g[j-1][i]+g[j+1][i])/8;
+  return {g:g2, nx, ny, dx, dy};
+}
+
+let CONTOUR = null;  // {step, src} for the card title
+async function drawContours(gCont, el){
+  let f, src = "dem";
+  try { f = await buildFieldDEM(); } catch (e) { console.warn(e); f = buildField(); src = "track"; }
+  const {g,nx,ny,dx,dy} = f;
+  let lo = Infinity, hi = -Infinity;
+  for (const r of g) for (const v of r) { if (v<lo) lo=v; if (v>hi) hi=v; }
+  // Interval: the largest "nice" step that still gives at least ~6 lines across the map.
+  const STEPS = [100,50,20,10,5,2,1];
+  const step = STEPS.find(st => (hi-lo)/st >= 6) || 1;
+  const major = step*5, fs = Math.max(PW,PH)/90;
+  for (let L = Math.ceil(lo/step)*step; L <= hi; L += step) {
+    const isMajor = Math.abs(L % major) < 1e-6;
+    const segs = contourSegs(g,nx,ny,dx,dy,L);
+    let dstr = "", best = null, bestLen = 0;
+    for (const [p,q] of segs) {
+      dstr += `M${p[0].toFixed(1)} ${p[1].toFixed(1)}L${q[0].toFixed(1)} ${q[1].toFixed(1)}`;
+      const len = Math.hypot(q[0]-p[0], q[1]-p[1]);
+      if (len > bestLen) { bestLen = len; best = [p,q]; }
+    }
+    if (!dstr) continue;
+    gCont.appendChild(el("path",{d:dstr, stroke:isMajor?"#CFC9BE":"#E0DCD3",
+      "stroke-width":isMajor?3.2:2.2, "stroke-linecap":"round"}));
+    if (isMajor && best) {
+      const [p,q] = best, mx = (p[0]+q[0])/2, my = (p[1]+q[1])/2;
+      let ang = Math.atan2(q[1]-p[1], q[0]-p[0])*180/Math.PI;
+      if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
+      const tx = el("text",{x:mx, y:my, transform:`rotate(${ang} ${mx} ${my})`, "font-size":fs,
+        fill:"#A39E93", "text-anchor":"middle", "paint-order":"stroke", stroke:"#F9F8F6", "stroke-width":fs/4});
+      tx.textContent = `${L} m`;
+      gCont.appendChild(tx);
+    }
+  }
+  CONTOUR = {step, src};
+  renderContourNote();
+}
+function renderContourNote(){
+  const n = document.getElementById("contour-note");
+  if (n) n.textContent = CONTOUR ? `(${CONTOUR.step} m · ${t(CONTOUR.src==="dem" ? "contour_dem" : "contour_track")})` : "";
+}
+
 function contourSegs(g,nx,ny,dx,dy,level){
   const segs=[];
   for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){
@@ -441,33 +534,9 @@ function renderMap(){
   const ns = "http://www.w3.org/2000/svg";
   const el = (t,at)=>{const e=document.createElementNS(ns,t);for(const k in at)e.setAttribute(k,at[k]);return e;};
 
-  const {g,nx,ny,dx,dy} = buildField();
-  const altMin=Math.min(...D.alt), altMax=Math.max(...D.alt);
-  const loLevel = Math.floor(altMin/10)*10, hiLevel = Math.ceil(altMax/10)*10;
   const gCont = el("g",{transform:`translate(${PAD},${PAD})`,fill:"none"});
-  for(let L=loLevel;L<=hiLevel;L+=10){
-    const idx = (L%50===0);
-    const segs = contourSegs(g,nx,ny,dx,dy,L);
-    let dstr="";
-    let best=null, bestLen=0;
-    for(const [p,q] of segs){
-      dstr+=`M${p[0].toFixed(1)} ${p[1].toFixed(1)}L${q[0].toFixed(1)} ${q[1].toFixed(1)}`;
-      const len=Math.hypot(q[0]-p[0],q[1]-p[1]);
-      if(len>bestLen){bestLen=len;best=[p,q];}
-    }
-    gCont.appendChild(el("path",{d:dstr,stroke:idx?"#D3CEC4":"#EAE8E3",
-      "stroke-width":idx?3.2:2.2,"stroke-linecap":"round"}));
-    if(idx&&best){
-      const [p,q]=best, mx=(p[0]+q[0])/2, my=(p[1]+q[1])/2;
-      const ang=Math.atan2(q[1]-p[1],q[0]-p[0])*180/Math.PI;
-      const tx=el("text",{x:mx,y:my,transform:`rotate(${ang} ${mx} ${my})`,
-        "font-size":30,fill:"#A39E93","text-anchor":"middle",
-        "paint-order":"stroke",stroke:"#F9F8F6","stroke-width":8});
-      tx.textContent=`${L} m`;
-      gCont.appendChild(tx);
-    }
-  }
   svg.appendChild(gCont);
+  drawContours(gCont, el);
 
   let under="";
   for(let i=0;i<N;i++) under+=`${i?"L":"M"}${(RX[i]+PAD).toFixed(1)} ${(RY[i]+PAD).toFixed(1)}`;
