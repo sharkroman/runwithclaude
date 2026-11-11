@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Trail Run Dashboard</title>
 <link rel="icon" type="image/jpeg" href="favicon.jpg">
+<script src="assets/coach-chat.js"></script>
 <style>
   :root{
     /* Claude Light Theme Palette */
@@ -97,6 +98,29 @@
   .race .rc{margin-left:auto;text-align:center;flex:0 0 auto}
   .race .rc b{display:block;font-size:22px;line-height:1;color:var(--amber)}
   .race .rc small{font-size:9.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.6px}
+
+  /* Phone: one column; .col wrappers vanish and "order" sets the sequence. */
+  #content{display:flex;flex-direction:column}
+  .col{display:contents}
+  .o-map{order:1} #annotations{order:2} .o-prof{order:3} .o-sum{order:4} .o-zones{order:5} #chat-card{order:6} #footer{order:7}
+  #chat-card{--cc-ink:var(--txt);--cc-dim:var(--dim);--cc-line:var(--line);--cc-bg:var(--bg);--cc-soft:var(--panel2)}
+  #chat-card .cc-title{font-size:12px;text-transform:uppercase;letter-spacing:1.2px;color:var(--faint);font-weight:700}
+
+  /* Desktop: map and charts on the left, coaching pins and chat on the right. */
+  @media (min-width: 960px){
+    body{padding:24px}
+    .app{max-width:1280px;border-radius:18px;padding:22px 26px 30px;min-height:auto}
+    #content{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(360px,1fr);gap:0 22px;align-items:start}
+    #content>header,#footer{grid-column:1/-1}
+    #content>header{padding-right:90px}
+    #run-selector{max-width:460px}
+    h1{font-size:26px}
+    .col{display:block}
+    .col-side{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto;padding-right:4px}
+    .col-side #annotations .ann:first-child{margin-top:12px}
+    #chat-card{--cc-max:340px}
+    .race{margin-right:90px}
+  }
 </style>
 </head>
 <body>
@@ -116,7 +140,8 @@
       <div class="chips" id="chips"></div>
     </header>
 
-    <div class="card">
+    <div class="col col-main">
+    <div class="card o-map">
       <h2 data-i18n="route">Route · HR-scaled track on synthesized contours (10 m)</h2>
       <div id="map-container">
         <svg id="map" role="img" aria-label="Contour map with heart-rate colored route" style="touch-action:none;"></svg>
@@ -124,9 +149,7 @@
       </div>
     </div>
 
-    <div id="annotations"></div>
-
-    <div class="card">
+    <div class="card o-prof">
       <h2 data-i18n="elev_hr">Elevation &amp; heart rate</h2>
       <div id="profile-container">
         <svg id="profile" viewBox="0 0 360 150" role="img" aria-label="Elevation and heart rate profile" style="touch-action:none;"></svg>
@@ -139,38 +162,21 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card o-sum">
       <h2 data-i18n="summary">Summary</h2>
       <div class="grid mono" id="summary"></div>
     </div>
 
-    <div class="card">
+    <div class="card o-zones">
       <h2 data-i18n="zones">Time in HR zone</h2>
       <div id="zones"></div>
     </div>
 
-    <!-- AI Chat Interface -->
-    <div class="card" id="chat-card">
-      <h2 data-i18n="chat_title">AI Coach (OpenRouter)</h2>
-      <div style="margin-bottom: 10px; font-size: 11px; color: var(--dim);">
-      <label style="display:block; margin-bottom:6px;"><span data-i18n="api_key">API Key:</span> <input type="password" id="api-key" placeholder="sk-or-v1-..." style="width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--txt); margin-top: 4px;"></label>
-      <label style="display:block;"><span data-i18n="model">Model:</span> 
-        <select id="chat-model" style="width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--txt); margin-top: 4px; font-family: inherit;">
-          <option value="anthropic/claude-sonnet-5.5">Claude Sonnet 5.5</option>
-          <option value="anthropic/claude-opus-5.5">Claude Opus 5.5</option>
-          <option value="anthropic/claude-haiku-5.5">Claude Haiku 5.5</option>
-          <option value="openai/gpt-4o">GPT-4o</option>
-          <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
-          <option value="meta-llama/llama-4-maverick">Llama 4 Maverick</option>
-          <option value="openrouter/auto">OpenRouter Auto (Best Available)</option>
-        </select>
-      </label>
     </div>
-      <div id="chat-history" style="max-height: 200px; overflow-y: auto; margin-bottom: 10px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; line-height: 1.4;"></div>
-      <div style="display: flex; gap: 6px;">
-        <input type="text" id="chat-input" data-placeholder-i18n="chat_placeholder" placeholder="Ask about your run..." style="flex: 1; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--txt);">
-        <button id="chat-send" data-i18n="send" style="padding: 8px 12px; background: var(--txt); color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">Send</button>
-      </div>
+
+    <div class="col col-side">
+      <div id="annotations"></div>
+      <div class="card" id="chat-card"></div>
     </div>
 
     <footer id="footer"></footer>
@@ -196,7 +202,7 @@ const I18N = {
     fade_det: "Pace bleeds back as the descent flattens and fatigue lands. Keep turnover up through the final rollers.",
     finish_det: "Back near the trailhead. A steady out-and-back climb.",
     source: "Source: Strava activity",
-    footer_text: "Streams fetched at high resolution via a Make scenario writing to GitHub.<br>Contours are synthesized from track altitude via IDW interpolation (10 m interval); route color = heart rate (green ≤145 → red ≥175 bpm).",
+    footer_text: "Streams fetched at high resolution from Strava by a GitHub Actions workflow.<br>Contours are synthesized from track altitude via IDW interpolation (10 m interval); route color = heart rate (green ≤145 → red ≥175 bpm).",
     chat_title: "AI Coach (OpenRouter)", api_key: "API Key:", model: "Model:", chat_placeholder: "Ask about your run...", send: "Send",
     select_run: "-- Select a previous run --",
     race_next: "Next race", race_done: "Race roadbook", race_days: "days", race_today: "Race day",
@@ -220,7 +226,7 @@ const I18N = {
     fade_det: "随着下坡变缓和疲劳袭来，配速开始下降。在最后的起伏路段保持步频。",
     finish_det: "回到起点附近。一次稳定的折返爬升训练。",
     source: "数据来源: Strava 活动",
-    footer_text: "通过 Make 自动化获取高精度轨迹数据并写入 GitHub。<br>等高线通过海拔数据反向插值生成 (10米等高距)；轨迹颜色 = 心率 (绿色 ≤145 → 红色 ≥175 bpm)。",
+    footer_text: "由 GitHub Actions 从 Strava 获取高精度轨迹数据。<br>等高线通过海拔数据反向插值生成 (10米等高距)；轨迹颜色 = 心率 (绿色 ≤145 → 红色 ≥175 bpm)。",
     chat_title: "AI 教练 (OpenRouter)", api_key: "API 密钥:", model: "模型:", chat_placeholder: "询问关于这次跑步的建议...", send: "发送",
     select_run: "-- 选择历史记录 --",
     race_next: "下一场比赛", race_done: "赛事路书", race_days: "天", race_today: "比赛日",
@@ -267,6 +273,7 @@ function setLang(l) {
 
   if (window.runsIndex) populateRunSelector(window.runsIndex);
   if(D) { renderMeta(); renderAnnotations(); renderZones(); }
+  if (typeof chat !== "undefined") chat.setLang();
 }
 
 // With no ?id=, show the newest run from runs/index.json.
@@ -715,97 +722,26 @@ function renderMeta(){
     t('footer_text');
 }
 
-// Chat functionality
-const apiKeyInput = document.getElementById("api-key");
-const chatInput = document.getElementById("chat-input");
-const chatSend = document.getElementById("chat-send");
-const chatHistory = document.getElementById("chat-history");
-
-// The key lives only in sessionStorage (this tab), never localStorage, which every page
-// on sharkroman.github.io can read. Remove any key an older version saved there.
-try { localStorage.removeItem("openrouter_key"); } catch {}
-try { apiKeyInput.value = sessionStorage.getItem("openrouter_key") || ""; } catch {}
-apiKeyInput.addEventListener("change", () => { try { sessionStorage.setItem("openrouter_key", apiKeyInput.value); } catch {} });
-apiKeyInput.title = t("key_note");
-
-const modelSelect = document.getElementById("chat-model");
-if (modelSelect) {
-  const saved = localStorage.getItem("openrouter_model");
-  const known = [...modelSelect.options].some(o => o.value === saved);
-  modelSelect.value = known ? saved : "anthropic/claude-sonnet-5.5";
-  modelSelect.addEventListener("change", () => localStorage.setItem("openrouter_model", modelSelect.value));
-}
-
-let conversation = [];
-
-async function sendChat() {
-  const text = chatInput.value.trim();
-  if(!text) return;
-  const key = apiKeyInput.value.trim();
-  if(!key) { alert("Please enter an OpenRouter API key first."); return; }
-  
-  addChatMsg("You", text);
-  chatInput.value = "";
-  chatSend.disabled = true;
-  chatSend.textContent = "...";
-
-  if(conversation.length === 0) {
-    conversation.push({
-      role: "system",
-      content: `You are an elite trail running coach analyzing data. The user just completed a run named "${D.meta.name}".
-Data: ${D.meta.distance_km}km, +${D.meta.elev_gain_m}m elevation, ${D.meta.moving} moving time, ${D.meta.pace}/km average pace.
-Avg HR: ${D.meta.avg_hr}, Max HR: ${D.meta.max_hr}. 
-Provide concise, actionable insights and answer the user's questions.`
-    });
+// AI coach chat (shared module, assets/coach-chat.js).
+const chat = CoachChat.mount(document.getElementById("chat-card"), {
+  lang: () => LANG,
+  intro: { en: "Ask about this run: pacing, heart rate, what to change next time.",
+           zh: "就这次跑步提问：配速、心率、下次该怎么调整。" },
+  placeholder: { en: "Ask about this run…", zh: "问问这次跑步…" },
+  context: async () => {
+    const m = D.meta;
+    const pins = (WAY || []).map((w, k) =>
+      `${k + 1}. km ${(D.dist[w.idx] / 1000).toFixed(2)} · ${localizeText(w.title) || w.tKey || ""}: ${localizeText(w.tip) || ""}`).join("\n");
+    const recent = await CoachChat.recentRuns("", 8);
+    return `You are an experienced trail and road running coach. The athlete is looking at one of their Strava runs.
+Run "${m.name}" on ${m.date}: ${m.distance_km} km, +${m.elev_gain_m} m, ${m.moving} moving, ${m.pace}/km average, HR ${m.avg_hr} avg / ${m.max_hr} max.
+Coaching notes already shown on the page:
+${pins}
+Most recent runs (for context):
+${recent}
+Upcoming races: ${RACES.map(r => `${r.name.en} on ${r.date}`).join(", ") || "none"}.`;
   }
-  conversation.push({ role: "user", content: text });
-
-  try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${key}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://sharkroman.github.io",
-        "X-Title": "Trail Run Dashboard"
-      },
-      body: JSON.stringify({
-        model: document.getElementById("chat-model").value,
-        messages: conversation
-      })
-    });
-    
-    if(!res.ok) {
-      const errBody = await res.text();
-      throw new Error(`API Error ${res.status}: ${errBody}`);
-    }
-    
-    const data = await res.json();
-    const reply = data.choices[0].message.content;
-    conversation.push({ role: "assistant", content: reply });
-    addChatMsg("AI Coach", reply);
-  } catch (err) {
-    addChatMsg("System", err.message);
-  } finally {
-    chatSend.disabled = false;
-    chatSend.textContent = t('send');
-  }
-}
-
-function addChatMsg(sender, msg) {
-  const el = document.createElement("div");
-  const strong = document.createElement("strong");
-  strong.textContent = sender + ": ";
-  const span = document.createElement("span");
-  span.textContent = msg;
-  el.appendChild(strong);
-  el.appendChild(span);
-  chatHistory.appendChild(el);
-  chatHistory.scrollTop = chatHistory.scrollHeight;
-}
-
-chatSend.addEventListener("click", sendChat);
-chatInput.addEventListener("keypress", (e) => { if(e.key === "Enter") sendChat(); });
+});
 
 function boot(data){
   const s = data.streams || {};
@@ -825,7 +761,7 @@ function boot(data){
   computeBounds();
   buildWaypoints();
   document.getElementById("status").style.display="none";
-  document.getElementById("content").style.display="block";
+  document.getElementById("content").style.display="";
   setLang(LANG);
   renderMap();
   renderProfile();
