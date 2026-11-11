@@ -4,3 +4,5 @@
 !.env.example
 node_modules/
 .DS_Store
+.new-runs
+report.md

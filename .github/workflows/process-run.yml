@@ -6,11 +6,20 @@ on:
   workflow_dispatch:
     inputs:
       activity_id:
-        description: 'Activity ID, "tips", or "tips:<id>" (optional; empty fetches the 10 most recent)'
+        description: 'Activity ID, "tips", "tips:<id>", or "report:<id>" to resend a coach report (optional; empty fetches the 10 most recent)'
         required: false
+  # Poll Strava every 30 minutes; runs with nothing new make no AI calls.
+  schedule:
+    - cron: "7,37 * * * *"
 
 permissions:
   contents: write
+  issues: write
+
+# One run at a time, so commits and the Strava token rotation never race.
+concurrency:
+  group: process-run
+  cancel-in-progress: false
 
 jobs:
   fetch-and-build:
@@ -42,10 +51,12 @@ jobs:
           ACTIVITY_ID="${DISPATCH_ACTIVITY_ID:-$INPUT_ACTIVITY_ID}"
           if [ -z "$ACTIVITY_ID" ]; then
             node tools/backfill.js
+          elif [[ "$ACTIVITY_ID" =~ ^report:([0-9]+)$ ]]; then
+            echo "${BASH_REMATCH[1]}" > .new-runs
           elif [[ "$ACTIVITY_ID" =~ ^([0-9]+|tips|tips:[0-9]+)$ ]]; then
             node tools/backfill.js "$ACTIVITY_ID"
           else
-            echo "::error::Invalid activity_id. Expected digits, 'tips', or 'tips:<digits>'."
+            echo "::error::Invalid activity_id. Expected digits, 'tips', 'tips:<digits>', or 'report:<digits>'."
             exit 1
           fi
 
@@ -75,6 +86,23 @@ jobs:
           done
           echo "::error::Could not push after 5 attempts."
           exit 1
+
+      # Opens one GitHub issue per newly saved run; GitHub then emails / pushes it to the owner.
+      - name: Send coach report
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REPORT_MENTION: ${{ github.repository_owner }}
+        run: |
+          [ -f .new-runs ] || { echo "No new runs."; exit 0; }
+          while read -r id; do
+            [[ "$id" =~ ^[0-9]+$ ]] || continue
+            title=$(node -e 'const r=require("./runs/"+process.argv[1]+".json");console.log(`Coach report: ${r.name} (${r.date.slice(0,10)}, ${r.distance_km} km)`)' "$id")
+            node tools/report.js "$id" > report.md
+            gh issue create --repo "$REPO" --title "$title" --body-file report.md
+          done < .new-runs
+          rm -f .new-runs report.md
 
       # Runs even if the fetch failed: Strava may have rotated the token before the failure,
       # and losing the new token would break every later run.

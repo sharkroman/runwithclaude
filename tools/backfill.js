@@ -689,9 +689,11 @@ async function main() {
     indexData = JSON.parse(fs.readFileSync(indexPath, "utf8"));
   }
 
+  const newIds = [];
   for (const act of runs) {
     const id = act.id;
     const outPath = path.join(OUT_DIR, `${id}.json`);
+    const isNew = !fs.existsSync(outPath);
     
     // If it's a webhook trigger, we WANT to process it even if it exists.
     // If we're just syncing, we skip. But we will always fetch streams if we passed an explicit ID.
@@ -726,6 +728,7 @@ async function main() {
       
       fs.writeFileSync(outPath, JSON.stringify(runData));
       console.log(`Saved ${id}.json`);
+      if (isNew) newIds.push(id);
       
       // Update index
       indexData = indexData.filter(x => x.id !== runData.id);
@@ -743,6 +746,8 @@ async function main() {
   indexData.sort((a, b) => new Date(b.date) - new Date(a.date));
   fs.writeFileSync(indexPath, JSON.stringify(indexData, null, 2));
   console.log(`Updated index.json`);
+  // The workflow sends a coach report for each run saved for the first time.
+  if (newIds.length) fs.writeFileSync(path.join(ROOT_DIR, ".new-runs"), newIds.join("\n") + "\n");
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
