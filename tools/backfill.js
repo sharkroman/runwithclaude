@@ -81,14 +81,15 @@ function mmss(totalSec) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+// m:ss from seconds, rounding the total first so 419.6 s gives "7:00", not "6:60".
+function secondsToMSS(sec) {
+  const total = Math.round(sec);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
 function paceFromSpeed(speed) {
   if (!speed || speed <= 0) return "";
-  const spk = 1000 / speed;
-  const m = Math.floor(spk / 60);
-  const s = Math.round(spk % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
+  return secondsToMSS(1000 / speed);
 }
-
 
 
 function buildRun(activity, streams) {
@@ -138,8 +139,7 @@ const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
 const pad = n => String(n).padStart(2, "0");
 function paceStr(v) {
   if (!v || v <= 0.3) return "walk";
-  const spk = 1000 / v;
-  return `${Math.floor(spk / 60)}:${pad(Math.round(spk % 60))}`;
+  return secondsToMSS(1000 / v);
 }
 function paceSeconds(pace) {
   if (!pace || typeof pace !== "string" || !pace.includes(":")) return null;
@@ -149,7 +149,7 @@ function paceSeconds(pace) {
 }
 function formatPace(sec) {
   if (!sec && sec !== 0) return "";
-  return `${Math.floor(sec / 60)}:${pad(Math.round(sec % 60))}`;
+  return secondsToMSS(sec);
 }
 function hv(arr, i) {
   for (let d = 0; d < arr.length; d++) {
@@ -315,27 +315,30 @@ function inferWaypointType(waypoint, runData) {
   if (text.includes("fatigue") || text.includes("fade") || text.includes("heart") || grade >= 8) return "warning";
   return "neutral";
 }
+// The LLM decides how many moments a run deserves; we only enforce a sane range.
+const MIN_WAYPOINTS = 1;
+const MAX_WAYPOINTS = 15;
 function normalizeWaypoints(raw, runData) {
-  if (!raw || !Array.isArray(raw.waypoints) || raw.waypoints.length < 7) return null;
+  if (!raw || !Array.isArray(raw.waypoints)) return null;
   const maxIdx = (runData.streams?.dist?.length || 1) - 1;
   const used = new Set();
   const normalized = raw.waypoints.map((w, index) => {
-    let idx = clamp(Math.round(Number(w.idx) || 0), 0, maxIdx);
-    while (used.has(idx) && idx < maxIdx) idx += 1;
-    while (used.has(idx) && idx > 0) idx -= 1;
-    if (used.has(idx)) return null;
-    used.add(idx);
+    if (!w || typeof w !== "object") return null;
+    const idx = clamp(Math.round(Number(w.idx) || 0), 0, maxIdx);
+    if (used.has(idx)) return null; // duplicate moment
     const title = typeof w.title === "object" ? localText(w.title.en || "", w.title.zh || "") : localText(String(w.title || `Moment ${index + 1}`), String(w.title || `时刻 ${index + 1}`));
     const tip = typeof w.tip === "object" ? localText(w.tip.en || "", w.tip.zh || "") : localText(String(w.tip || ""), String(w.tip || ""));
+    if (!tip.en && !tip.zh) return null;
+    used.add(idx);
     return {
       idx,
       type: ["neutral", "warning", "target", "critical"].includes(w.type) ? w.type : inferWaypointType({ idx, title, tip }, runData),
       title,
       tip
     };
-  }).filter(Boolean).sort((a, b) => a.idx - b.idx);
-  if (normalized.length < 7) return null;
-  return normalized.slice(0, 7);
+  }).filter(Boolean).slice(0, MAX_WAYPOINTS).sort((a, b) => a.idx - b.idx);
+  if (normalized.length < MIN_WAYPOINTS) return null;
+  return normalized;
 }
 function finalizeWaypoints(waypoints, runData) {
   const { dist = [], alt = [], hr = [], vel = [] } = runData.streams || {};
@@ -382,7 +385,11 @@ function emergencyFallbackWaypoints(runData, recentRuns) {
   const hasHR = hr.some(v => v > 30);
   const paceNow = paceSeconds(runData.pace);
   const histPace = paceSeconds(history.avg_pace);
-  const windows = 7;
+  // Scale with the run: ~1 pin per 1.5 km plus 1 per 150 m of climbing, 3 to 12.
+  const windows = clamp(
+    Math.round((runData.distance_km || 0) / 1.5 + (runData.elev_gain_m || 0) / 150),
+    3, Math.min(12, n)
+  );
   const candidatePool = [];
   for (let s = 0; s < windows; s++) {
     const start = Math.floor((s * n) / windows);
@@ -452,8 +459,8 @@ async function generateLLMWaypoints(runData, recentRuns) {
     current_run: buildLLMRunContext(runData),
     recent_history: buildRecentHistory(recentRuns),
     instructions: {
-      choose_exactly: 7,
-      rule: "Choose 7 diverse moments from the whole run telemetry. Do NOT default to start, finish, summit, max HR, fastest split, or steepest grade unless they are genuinely the most interesting moments in this specific run.",
+      waypoint_count: `your choice, between ${MIN_WAYPOINTS} and ${MAX_WAYPOINTS}`,
+      rule: "Pick as many moments as this run genuinely warrants after comparing it with recent history: a short, steady, familiar run may need only 2-3; a long or eventful run (big climbs, pace or heart-rate shifts, a new route, a fade, a breakthrough) may need many more. Every moment must say something the others don't. Do NOT default to start, finish, summit, max HR, fastest split, or steepest grade unless they are genuinely the most interesting moments in this specific run.",
       output_schema: {
         waypoints: [
           {
@@ -469,7 +476,8 @@ async function generateLLMWaypoints(runData, recentRuns) {
   const prompt = [
     "You are writing elite running-coach annotations for a single run.",
     "Use the run telemetry and recent history provided.",
-    "Choose exactly 7 interesting moments anywhere in the run.",
+    `Decide how many moments this run deserves (${MIN_WAYPOINTS} to ${MAX_WAYPOINTS}) by interpreting it against the recent history, then choose that many from anywhere in the run.`,
+    "Fewer, sharper notes beat padding: never add a moment just to reach a number.",
     "Avoid repeated template titles such as First Impression, Stress Marker, Climb Bite, High Point, Gravity Test, Release Point, or Closing Note.",
     "Do not force generic categories like start, finish, summit, max HR, fastest split, or steepest grade unless they are truly the most interesting points in this specific run.",
     "Each title should sound bespoke to this run.",
