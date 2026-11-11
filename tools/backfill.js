@@ -453,8 +453,21 @@ function extractMessageText(message) {
   }
   return "";
 }
+// Fallback pins are a degraded mode; say so loudly (and as a GitHub Actions
+// annotation) instead of failing silently.
+function warnFallback(reason) {
+  console.error(`WARNING: using fallback waypoints: ${reason}`);
+  if (process.env.GITHUB_ACTIONS) console.log(`::warning title=AI coach fallback::${reason}`);
+}
+let warnedMissingKey = false;
+// Returns { waypoints } on success, { error } with a short reason otherwise.
 async function generateLLMWaypoints(runData, recentRuns) {
-  if (!openRouterKey) return null;
+  if (!openRouterKey) {
+    if (!warnedMissingKey) warnFallback("OPENROUTER_API_KEY is not set, so the AI coach is skipped");
+    warnedMissingKey = true;
+    return { error: "missing_api_key" };
+  }
+  let error = "unknown";
   const context = {
     current_run: buildLLMRunContext(runData),
     recent_history: buildRecentHistory(recentRuns),
@@ -507,22 +520,27 @@ async function generateLLMWaypoints(runData, recentRuns) {
       if (!res.ok) {
         const err = await res.text();
         console.error(`LLM waypoint HTTP ${res.status} (attempt ${attempt}): ${err.slice(0, 300)}`);
+        error = `http_${res.status}`;
       } else {
         const data = await res.json();
         const text = extractMessageText(data?.choices?.[0]?.message);
         const parsed = parseJsonBlock(text);
         const normalized = normalizeWaypoints(parsed, runData);
-        if (normalized) return finalizeWaypoints(normalized, runData);
+        if (normalized) return { waypoints: finalizeWaypoints(normalized, runData) };
         console.error(`LLM waypoint parse failed (attempt ${attempt})`);
+        error = "parse_failed";
       }
     } catch (err) {
       console.error(`LLM waypoint fetch error (attempt ${attempt}): ${err.message}`);
+      error = "fetch_error";
     }
   }
-  return null;
+  warnFallback(`OpenRouter call failed for run ${runData.id} (${error})`);
+  return { error };
 }
 async function generateWaypointBundle(runData, recentRuns) {
-  const llmWaypoints = await generateLLMWaypoints(runData, recentRuns);
+  const llm = await generateLLMWaypoints(runData, recentRuns);
+  const llmWaypoints = llm.waypoints;
   if (llmWaypoints) {
     return {
       waypoints: llmWaypoints,
@@ -541,6 +559,7 @@ async function generateWaypointBundle(runData, recentRuns) {
     ai_tips: fallback.map(w => w.tip),
     ai_generation: {
       mode: "emergency_fallback",
+      fallback_reason: llm.error,
       history_count: recentRuns.length
     }
   };

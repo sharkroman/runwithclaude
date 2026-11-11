@@ -22,7 +22,7 @@ GitHub Actions and committed to `runs/`.
 `id, name, sport, date ("YYYY-MM-DD HH:MM" local), distance_km, elev_gain_m, moving, pace,
 avg_hr, max_hr, calories, streams{location[[lat,lng]], hr, alt, dist(m), vel(m/s), grade(%), time(s)}`
 (all streams the same length), plus `meta{waypoints[{idx, type, title{en,zh}, subText{en,zh},
-tip{en,zh}, metrics{hr,pace}}], ai_tips, ai_generation{mode, model?, history_count}}`.
+tip{en,zh}, metrics{hr,pace}}], ai_tips, ai_generation{mode, model?, fallback_reason?, history_count}}`.
 `runs/index.json` is `[{id, name, date, distance_km}]`, newest first.
 
 ## Commands
