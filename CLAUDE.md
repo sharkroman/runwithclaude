@@ -28,8 +28,8 @@ GitHub Actions and committed to `runs/`.
   and syncs the rotated Strava refresh token back to the repo secret through `GH_PAT`.
 
 ## Private hosting (planned)
-`functions/_middleware.js` is a Cloudflare Pages Function that puts one shared password (Basic Auth, secret
-`SITE_PASSWORD`, optional `SITE_USER`) in front of the whole site. Inert on GitHub Pages. When moving: deploy the repo
+`functions/_middleware.js` is a Cloudflare Pages Function that puts one shared password (password-only login page,
+secret `SITE_PASSWORD`, 1-year HttpOnly cookie, `/__logout`) in front of the whole site. Inert on GitHub Pages. When moving: deploy the repo
 on Cloudflare Pages (no build, output `/`), make the GitHub repo private, update `SITE` in `tools/report.js`, and
 reduce the cron (private repos have 2,000 free Actions minutes/month).
 
