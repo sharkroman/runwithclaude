@@ -77,7 +77,10 @@ async function stravaGet(url, token) {
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) {
     if(res.status === 404) return null; 
-    throw new Error(`Strava GET ${url} failed: ${res.status}`);
+    const hint = res.status === 401
+      ? " (the refresh token works but lacks the activity:read_all scope; re-authorise and dispatch the workflow with strava_code:<code>, see CLAUDE.md)"
+      : "";
+    throw new Error(`Strava GET ${url} failed: ${res.status}${hint}`);
   }
   return res.json();
 }

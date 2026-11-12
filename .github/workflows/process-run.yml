@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       activity_id:
-        description: 'Activity ID, "tips", "tips:<id>", or "report:<id>" to resend a coach report (optional; empty fetches the 10 most recent)'
+        description: 'Activity ID, "tips", "tips:<id>", "report:<id>" to resend a coach report, or "strava_code:<code>" to re-authorise Strava (optional; empty fetches the 10 most recent)'
         required: false
   # Poll Strava every 30 minutes; runs with nothing new make no AI calls.
   schedule:
@@ -51,12 +51,29 @@ jobs:
           ACTIVITY_ID="${DISPATCH_ACTIVITY_ID:-$INPUT_ACTIVITY_ID}"
           if [ -z "$ACTIVITY_ID" ]; then
             node tools/backfill.js
+          elif [[ "$ACTIVITY_ID" =~ ^strava_code:([A-Za-z0-9]+)$ ]]; then
+            # Re-authorisation: swap the one-time OAuth code for a refresh token (saved to the repo
+            # secret by the sync step below), then fetch recent runs with it.
+            STRAVA_REFRESH_TOKEN=$(STRAVA_CODE="${BASH_REMATCH[1]}" node -e '
+              (async () => {
+                const r = await fetch("https://www.strava.com/oauth/token", { method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ client_id: process.env.STRAVA_CLIENT_ID, client_secret: process.env.STRAVA_CLIENT_SECRET,
+                                         code: process.env.STRAVA_CODE, grant_type: "authorization_code" }) });
+                const j = await r.json().catch(() => ({}));
+                if (!r.ok || !j.refresh_token) { console.error(`Strava code exchange failed: ${r.status} ${JSON.stringify(j.errors || j.message || "")}`); process.exit(1); }
+                require("fs").writeFileSync(".strava-refresh-token", j.refresh_token);
+                process.stdout.write(j.refresh_token);
+              })();') || exit 1
+            echo "::add-mask::$STRAVA_REFRESH_TOKEN"
+            export STRAVA_REFRESH_TOKEN
+            node tools/backfill.js
           elif [[ "$ACTIVITY_ID" =~ ^report:([0-9]+)$ ]]; then
             echo "${BASH_REMATCH[1]}" > .new-runs
           elif [[ "$ACTIVITY_ID" =~ ^([0-9]+|tips|tips:[0-9]+)$ ]]; then
             node tools/backfill.js "$ACTIVITY_ID"
           else
-            echo "::error::Invalid activity_id. Expected digits, 'tips', 'tips:<digits>', or 'report:<digits>'."
+            echo "::error::Invalid activity_id. Expected digits, 'tips', 'tips:<digits>', 'report:<digits>', or 'strava_code:<code>'."
             exit 1
           fi
 

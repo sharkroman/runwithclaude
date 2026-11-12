@@ -23,6 +23,12 @@ GitHub Actions and committed to `runs/`.
   opens a "Coach report" GitHub issue for each newly saved run (`backfill.js` lists them in `.new-runs`),
   and syncs the rotated Strava refresh token back to the repo secret through `GH_PAT`.
 
+## Re-authorising Strava (activity list returns 401)
+The refresh token needs `activity:read_all`. Open
+`https://www.strava.com/oauth/authorize?client_id=<CLIENT_ID>&response_type=code&redirect_uri=http://localhost&approval_prompt=force&scope=read,activity:read_all`,
+approve, copy `code=` from the (unloadable) localhost redirect URL, then dispatch the workflow with
+`strava_code:<code>` (codes are single-use). It saves the new refresh token to the secret and fetches runs.
+
 ## Run JSON schema (`runs/<id>.json`)
 `id, name, sport, date ("YYYY-MM-DD HH:MM" local), distance_km, elev_gain_m, moving, pace,
 avg_hr, max_hr, calories, streams{location[[lat,lng]], hr, alt, dist(m), vel(m/s), grade(%), time(s)}`
