@@ -23,6 +23,11 @@ GitHub Actions and committed to `runs/`.
   opens a "Coach report" GitHub issue for each newly saved run (`backfill.js` lists them in `.new-runs`),
   and syncs the rotated Strava refresh token back to the repo secret through `GH_PAT`.
 
+## Instant updates (Strava webhook)
+`tools/strava-webhook-worker.js` runs as a Cloudflare Worker: Strava POSTs each new activity to it and it fires
+`repository_dispatch` `new_strava_run` with the activity id. Strava allows one subscription per API app
+(`GET/POST/DELETE https://www.strava.com/api/v3/push_subscriptions`). The 30-min schedule stays as a backstop.
+
 ## Re-authorising Strava (activity list returns 401)
 The refresh token needs `activity:read_all`. Open
 `https://www.strava.com/oauth/authorize?client_id=<CLIENT_ID>&response_type=code&redirect_uri=http://localhost&approval_prompt=force&scope=read,activity:read_all`,
