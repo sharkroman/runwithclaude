@@ -19,11 +19,11 @@
     en: { title: "AI Coach", key: "OpenRouter API key", model: "Model", send: "Send", clear: "Clear",
           you: "You", coach: "Coach", sys: "Error", need_key: "Enter your OpenRouter API key first.",
           key_note: "Kept only in this browser tab; cleared when you close it.", thinking: "Thinking…",
-          placeholder: "Ask the coach…" },
+          placeholder: "Ask the coach…", cut: "The reply hit the length limit. Ask \"continue\" to get the rest." },
     zh: { title: "AI 教练", key: "OpenRouter API 密钥", model: "模型", send: "发送", clear: "清空",
           you: "你", coach: "教练", sys: "错误", need_key: "请先输入 OpenRouter API 密钥。",
           key_note: "只保存在当前标签页，关闭后即清除。", thinking: "思考中…",
-          placeholder: "问问教练…" }
+          placeholder: "问问教练…", cut: "回复达到长度上限被截断，发送“继续”获取剩余部分。" }
   };
   const CSS = `
 .cc{font-size:13px;color:var(--cc-ink,#1A1A1A)}
@@ -130,20 +130,22 @@
       try {
         if (!convo.length) {
           const sys = await opts.context();
-          convo.push({ role: "system", content: sys + `\n\nReply in ${lang() === "en" ? "English" : "Simplified Chinese"} unless the user writes in another language. Be concise and specific to the data.` });
+          convo.push({ role: "system", content: sys + `\n\nReply in ${lang() === "en" ? "English" : "Simplified Chinese"} unless the user writes in another language. Be concise and specific to the data. Today is ${new Date().toISOString().slice(0, 10)}. If the data above does not cover something, say so instead of guessing.` });
         }
         convo.push({ role: "user", content: text });
         const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json",
                      "HTTP-Referer": "https://sharkroman.github.io/runwithclaude", "X-Title": "Run With Claude" },
-          body: JSON.stringify({ model: modelSel.value, messages: convo })
+          body: JSON.stringify({ model: modelSel.value, messages: convo, max_tokens: 4000 })
         });
         if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 300)}`);
         const data = await res.json();
-        const reply = data?.choices?.[0]?.message?.content || "";
+        const choice = data?.choices?.[0] || {};
+        const reply = choice.message?.content || "";
         convo.push({ role: "assistant", content: reply });
         pending.innerHTML = md(reply || "—");
+        if (choice.finish_reason === "length") add("sys", tx("cut"));
       } catch (err) {
         convo = convo.filter((m, i) => !(i === convo.length - 1 && m.role === "user"));
         pending.remove();
@@ -172,5 +174,40 @@
     } catch { return ""; }
   }
 
-  window.CoachChat = { mount, recentRuns };
+  // The athlete's whole saved history from runs/summary.json (built by tools/summary.js): monthly
+  // volume plus one line per run with climb/descent detail. Falls back to the last few runs.
+  async function trainingLog(base, fallbackN = 8) {
+    try {
+      const sum = await (await fetch(base + "runs/summary.json", { cache: "no-cache" })).json();
+      const runs = (sum.runs || []).filter(r => /run/i.test(r.sport || "Run"));
+      if (!runs.length) throw new Error("empty");
+      const months = {};
+      for (const r of runs) {
+        const m = months[r.date.slice(0, 7)] ||= { n: 0, km: 0, gain: 0, loss: 0 };
+        m.n++; m.km += +r.km || 0; m.gain += +r.gain || 0; m.loss += +r.loss || 0;
+      }
+      const monthLines = Object.entries(months).sort().map(([k, m]) =>
+        `${k}: ${m.n} runs, ${m.km.toFixed(1)} km, +${Math.round(m.gain)}/−${Math.round(m.loss)} m`).join("\n");
+      const runLines = runs.map(r => {
+        const parts = [`${r.date.slice(0, 10)} "${r.name}"`, `${r.km} km`, `+${r.gain}/−${r.loss ?? "?"} m`,
+          r.alt_max != null && `alt ${r.alt_min}–${r.alt_max} m`, `${r.moving} moving @ ${r.pace}/km`,
+          r.hr && `HR ${r.hr}/${r.hr_max}`];
+        if (r.longest_descent_m >= 15) parts.push(`longest descent ${r.longest_descent_m} m over ${r.longest_descent_km} km (steepest 400 m ${r.steepest_400m_down_pct}%)`);
+        if (r.downhill_pace && r.downhill_km >= 0.2) parts.push(`downhill ${r.downhill_km} km @ ${r.downhill_pace}`);
+        if (r.uphill_pace && r.uphill_km >= 0.2) parts.push(`uphill ${r.uphill_km} km @ ${r.uphill_pace}`);
+        return "- " + parts.filter(Boolean).join(", ");
+      }).join("\n");
+      return `Complete saved training history: ${runs.length} runs, ${runs[runs.length - 1].date.slice(0, 10)} to ${runs[0].date.slice(0, 10)}.
+Downhill/uphill = time on grades ≤ −4% / ≥ 4%; "longest descent" = biggest continuous drop.
+Monthly volume:
+${monthLines}
+Every run, newest first:
+${runLines}`;
+    } catch {
+      const recent = await recentRuns(base, fallbackN);
+      return recent ? `Most recent ${fallbackN} runs only (full history unavailable):\n${recent}` : "";
+    }
+  }
+
+  window.CoachChat = { mount, recentRuns, trainingLog };
 })();

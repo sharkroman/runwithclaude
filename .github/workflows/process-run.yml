@@ -60,6 +60,9 @@ jobs:
             exit 1
           fi
 
+      - name: Build run summary for the AI coach
+        run: node tools/summary.js || echo "::warning::tools/summary.js failed; runs/summary.json not updated"
+
       - name: Commit and Push Changes
         run: |
           git config --global user.name "github-actions[bot]"
@@ -80,7 +83,8 @@ jobs:
                   return { id: r.id, name: r.name, date: r.date, distance_km: r.distance_km };
                 }).sort((a, b) => new Date(b.date) - new Date(a.date));
                 fs.writeFileSync("runs/index.json", JSON.stringify(idx, null, 2));'
-              git add runs/index.json
+              node tools/summary.js || true
+              git add runs/index.json runs/summary.json
               GIT_EDITOR=true git rebase --continue || { git rebase --abort; exit 1; }
             fi
           done

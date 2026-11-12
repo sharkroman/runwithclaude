@@ -135,8 +135,21 @@ function download(name,text,type){const a=document.createElement('a'),url=URL.cr
 window.planner={data:D,stages,shots,selectAt,selectShot,selectStage,setLanguage,get language(){return lang},get position(){return currentD}};
 </script><script src="../../assets/coach-chat.js"></script>
 <script>
-// AI coach chat for this race (shared module). Context = course data + plan on this page + recent runs.
+// AI coach chat for this race (shared module). Context = official race info + course data + plan on this page + full training history.
 (function(){
+ // Checked against catalinaislandhalfmarathon.com (FAQ, Courses, Packet Pick-Up, Schedule, Sustainability) on 2026-11-12.
+ const OFFICIAL=`Official race information (organiser website, checked 2026-11-12; recheck before race day):
+- Saturday 14 Nov 2026. 10K start 8:15 AM (half marathon 8:00, kids 1K 10:00, awards 1:00 PM). 10K time limit 3 hours; a sweep vehicle gives a ride to anyone who can't keep minimum pace.
+- Start/finish in downtown Avalon at the bottom of Sumner Ave (start on Crescent Ave near Sumner; finish by Wrigley Stage next to the Green Pier).
+- Packet pick-up: Fri 13 Nov 4–7 PM at Catalina Charlies, 311 Crescent Ave; or race morning 6:30–8:00 AM at Wrigley Stage. Course talk with the race director Fri 6:00 PM.
+- Gear check: honour-system at Wrigley Stage by the finish; organisers advise not leaving valuables.
+- CUPLESS race: no cups anywhere; every runner must carry their own cup or bottle (reusable soft cups sold in the race store).
+- Aid stations: water, electrolytes, first aid, bananas, oranges, M&Ms, pretzels. No gels and no pain relievers on course. Leave no waste on trails (85% of the island is a protected conservancy).
+- The 2026 official 10K map shows two water stations: one on the residential hill north-west of town around mile 1–1.3 (about km 1.6–2), and one at Hermit Gulch Campground at the top of Avalon Canyon Road just before the Hour Trail (about km 5.3–5.8). Positions are estimated from the map image.
+- Official 10K description: easy warm-up along the beach out around the Casino and back, then minor elevation on pavement with views of Avalon in mile 2, then up Avalon Canyon; turn left at the aid station onto the Hour Trail (soft dirt, rolling hills), then back down into town to finish. Roughly half paved, half off-road.
+- Official 10K map: elevation gain 763 ft (about 233 m), high point about 450–500 ft around miles 3.6–5, steady descent from about mile 5.2 to the finish. (An older FAQ line says about 400 ft.)
+- Streets are not closed; sheriffs patrol major intersections; traffic is mostly golf carts. Headphones allowed at low volume.
+- Getting there: Catalina Express ferry from Long Beach, San Pedro or Dana Point (not included in entry).`;
  const P=window.planner, M=P.data.meta, head={en:['Ask the coach','Pacing, the climbs, race morning, kit: answers use this course plan and your recent runs.'],zh:['问问教练','配速、爬坡、比赛早晨、装备：结合本赛道计划和你最近的训练回答。']};
  const lang=()=>P.language;
  const chat=CoachChat.mount(document.getElementById('raceChat'),{
@@ -146,17 +159,18 @@ window.planner={data:D,stages,shots,selectAt,selectShot,selectStage,setLanguage,
    const stages=P.stages.map(s=>`- ${(s.start/1000).toFixed(1)}–${(s.end/1000).toFixed(1)} km "${s.name}": pace ${s.pace}/km, HR ${s.hr}, +${Math.round(s.stats.gain)}/−${Math.round(s.stats.loss)} m. ${s.sub} ${s.advice}`).join('\n');
    const splits=M.dem_splits.map(s=>`${s.start}–${s.end} km: +${s.gain}/−${s.loss} m, net grade ${s.grade}%`).join('; ');
    const txt=id=>(document.getElementById(id)?.innerText||'').replace(/\s+\n/g,'\n').slice(0,2500);
-   const recent=await CoachChat.recentRuns('../../',6);
+   const history=await CoachChat.trainingLog('../../');
    return `You are an experienced race coach helping the athlete prepare for and run a race.
 Race: ${M.name}, ${document.querySelector('.race-date')?.innerText||''}. Distance ${(+M.distance_km).toFixed(2)} km, platform ascent ${M.source_gain} m, DEM estimate +${M.dem_totals.gain}/−${M.dem_totals.loss} m, elevation ${M.elevation_min}–${M.elevation_max} m.
-Note: the GPS route is an archived MapMyRun route, not the confirmed current course.
+Note: the GPS route is MapMyRun route 2887761421, which the official Courses page links as the 10K "View Interactive Course Map"; it may still differ in detail from race day.
+${OFFICIAL}
 Per-km terrain: ${splits}
 Race plan on the page (stages):
 ${stages}
 Race-day timeline and kit (from the page):
 ${txt('departure')}
-Athlete's most recent runs:
-${recent}
+Athlete's training history:
+${history}
 Ground answers in this data; heart-rate targets are planning suggestions, not medical limits.`;
   }
  });

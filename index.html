@@ -801,13 +801,13 @@ const chat = CoachChat.mount(document.getElementById("chat-card"), {
     const m = D.meta;
     const pins = (WAY || []).map((w, k) =>
       `${k + 1}. km ${(D.dist[w.idx] / 1000).toFixed(2)} · ${localizeText(w.title) || w.tKey || ""}: ${localizeText(w.tip) || ""}`).join("\n");
-    const recent = await CoachChat.recentRuns("", 8);
+    const history = await CoachChat.trainingLog("");
     return `You are an experienced trail and road running coach. The athlete is looking at one of their Strava runs.
 Run "${m.name}" on ${m.date}: ${m.distance_km} km, +${m.elev_gain_m} m, ${m.moving} moving, ${m.pace}/km average, HR ${m.avg_hr} avg / ${m.max_hr} max.
 Coaching notes already shown on the page:
 ${pins}
-Most recent runs (for context):
-${recent}
+Athlete's training history (for context):
+${history}
 Upcoming races: ${RACES.map(r => `${r.name.en} on ${r.date}`).join(", ") || "none"}.`;
   }
 });
