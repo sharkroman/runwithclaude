@@ -27,6 +27,12 @@ GitHub Actions and committed to `runs/`.
   opens a "Coach report" GitHub issue for each newly saved run (`backfill.js` lists them in `.new-runs`),
   and syncs the rotated Strava refresh token back to the repo secret through `GH_PAT`.
 
+## Private hosting (planned)
+`functions/_middleware.js` is a Cloudflare Pages Function that puts one shared password (Basic Auth, secret
+`SITE_PASSWORD`, optional `SITE_USER`) in front of the whole site. Inert on GitHub Pages. When moving: deploy the repo
+on Cloudflare Pages (no build, output `/`), make the GitHub repo private, update `SITE` in `tools/report.js`, and
+reduce the cron (private repos have 2,000 free Actions minutes/month).
+
 ## Instant updates (Strava webhook)
 `tools/strava-webhook-worker.js` runs as a Cloudflare Worker: Strava POSTs each new activity to it and it fires
 `repository_dispatch` `new_strava_run` with the activity id. Strava allows one subscription per API app
