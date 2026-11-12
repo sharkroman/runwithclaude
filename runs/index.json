@@ -253,7 +253,7 @@
     "distance_km": 4.34,
     "place": {
       "en": "West Adams, Los Angeles",
-      "zh": "West Adams, 洛杉矶;洛杉磯",
+      "zh": "West Adams, 洛杉矶",
       "country": "us"
     },
     "photos": 5
@@ -265,7 +265,7 @@
     "distance_km": 4.31,
     "place": {
       "en": "Westchester, Los Angeles",
-      "zh": "Westchester, 洛杉矶;洛杉磯",
+      "zh": "Westchester, 洛杉矶",
       "country": "us"
     },
     "photos": 4
@@ -669,7 +669,7 @@
     "distance_km": 4.41,
     "place": {
       "en": "West Adams, Los Angeles",
-      "zh": "West Adams, 洛杉矶;洛杉磯",
+      "zh": "West Adams, 洛杉矶",
       "country": "us"
     },
     "photos": 6
@@ -705,7 +705,7 @@
     "distance_km": 8.07,
     "place": {
       "en": "Manhattan, New York",
-      "zh": "Manhattan, 纽约;紐約",
+      "zh": "Manhattan, 纽约",
       "country": "us"
     },
     "photos": 2
@@ -881,7 +881,7 @@
     "distance_km": 5.23,
     "place": {
       "en": "Austin",
-      "zh": "奥斯汀;奧斯汀;柯士甸",
+      "zh": "奥斯汀",
       "country": "us"
     }
   },

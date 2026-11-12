@@ -58,7 +58,8 @@ function placeLabel(a) {
   if (!a) return "";
   const local = a.suburb || a.neighbourhood || a.quarter || a.village || a.hamlet || a.town || a.city_district || a.island || a.park || "";
   const wide = a.city || a.town || a.county || a.state || "";
-  const parts = [local, wide].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i);
+  // Nominatim sometimes returns several name variants joined by ";" (e.g. simplified;traditional).
+  const parts = [local, wide].map(v => String(v).split(";")[0].trim()).filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i);
   if (!parts.length && a.country) parts.push(a.country);
   return parts.join(", ");
 }
