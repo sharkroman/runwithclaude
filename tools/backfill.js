@@ -729,6 +729,13 @@ async function main() {
         console.log(`Generated AI waypoint bundle for ${id} (${bundle.ai_generation.mode})`);
       }
       
+      if (!isNew) {
+        // Keep what tools/enrich.js added (place, photos) when re-processing a saved run.
+        try {
+          const prev = JSON.parse(fs.readFileSync(outPath, "utf8"));
+          for (const k of ["place", "photos", "photos_checked"]) if (prev[k] !== undefined) runData[k] = prev[k];
+        } catch {}
+      }
       fs.writeFileSync(outPath, JSON.stringify(runData));
       console.log(`Saved ${id}.json`);
       if (isNew) newIds.push(id);
@@ -739,7 +746,9 @@ async function main() {
         id: runData.id,
         name: runData.name,
         date: runData.date,
-        distance_km: runData.distance_km
+        distance_km: runData.distance_km,
+        ...(runData.place ? { place: runData.place } : {}),
+        ...(runData.photos?.length ? { photos: runData.photos.length } : {})
       });
     } catch(err) {
       console.error(`Error processing ${id}:`, err.message);

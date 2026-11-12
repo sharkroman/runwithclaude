@@ -189,7 +189,7 @@
       const monthLines = Object.entries(months).sort().map(([k, m]) =>
         `${k}: ${m.n} runs, ${m.km.toFixed(1)} km, +${Math.round(m.gain)}/−${Math.round(m.loss)} m`).join("\n");
       const runLines = runs.map(r => {
-        const parts = [`${r.date.slice(0, 10)} "${r.name}"`, `${r.km} km`, `+${r.gain}/−${r.loss ?? "?"} m`,
+        const parts = [`${r.date.slice(0, 10)} "${r.name}"`, r.place && `in ${r.place}`, `${r.km} km`, `+${r.gain}/−${r.loss ?? "?"} m`,
           r.alt_max != null && `alt ${r.alt_min}–${r.alt_max} m`, `${r.moving} moving @ ${r.pace}/km`,
           r.hr && `HR ${r.hr}/${r.hr_max}`];
         if (r.longest_descent_m >= 15) parts.push(`longest descent ${r.longest_descent_m} m over ${r.longest_descent_km} km (steepest 400 m ${r.steepest_400m_down_pct}%)`);

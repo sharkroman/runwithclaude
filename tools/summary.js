@@ -20,7 +20,7 @@ function summarise(run) {
   const st = run.streams || {};
   const alt = st.alt || [], dist = st.dist || [], time = st.time || [], vel = st.vel || [], grade = st.grade || [];
   const row = {
-    id: run.id, date: run.date, name: run.name, sport: run.sport, km: run.distance_km,
+    id: run.id, date: run.date, name: run.name, sport: run.sport, place: run.place?.en, km: run.distance_km,
     gain: run.elev_gain_m, moving: run.moving, pace: run.pace, hr: run.avg_hr, hr_max: run.max_hr
   };
   if (alt.length < 2) return row;

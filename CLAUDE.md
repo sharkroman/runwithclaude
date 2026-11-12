@@ -14,6 +14,10 @@ GitHub Actions and committed to `runs/`.
   Catalina is an archived MapMyRun route, not the confirmed course: keep that disclaimer.
 - `tools/backfill.js`: fetches Strava activities and streams, builds run JSON, and generates
   waypoints through the first configured provider: Amazon Bedrock (`BEDROCK_API_KEY`, Anthropic Messages format), the Anthropic API (`ANTHROPIC_API_KEY`), then OpenRouter (falls back to `emergencyFallbackWaypoints` with no key or on errors).
+- `tools/enrich.js`: adds `place{en,zh,country}` (OSM Nominatim reverse geocode of the start point, 1 req/s) and
+  `photos[{url,w,h,caption}]` (Strava activity photos, hotlinked CloudFront URLs; `photos_checked` date) to run files,
+  re-checks photos for runs from the last 7 days, and rebuilds `runs/index.json` (adds `place`, `photos` count).
+  `node tools/enrich.js photos` re-checks every run. Runs in the workflow after backfill.
 - `tools/summary.js`: rebuilds `runs/summary.json` (one compact row per run incl. descent/uphill stats) after each
   workflow run; the browser chat (`assets/coach-chat.js` `trainingLog`) sends it as the athlete's full history.
 - `tools/report.js <id>`: prints a Markdown coach report for one saved run
