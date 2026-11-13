@@ -6,24 +6,32 @@
 // The key lives only in sessionStorage (this tab). localStorage is readable by every page on
 // sharkroman.github.io, so any key an older version saved there is removed.
 (function () {
+  // Value picks from openrouter.ai/models (checked 2026-11-13), at least one per major lab.
+  // Price = US$ per million input / output tokens. One coach message (~8k tokens of context) costs well under 5 cents on any of these.
   const MODELS = [
-    ["anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5"],
-    ["anthropic/claude-opus-5.5", "Claude Opus 5.5"],
-    ["anthropic/claude-haiku-5.5", "Claude Haiku 5.5"],
-    ["openai/gpt-4o", "GPT-4o"],
-    ["google/gemini-2.5-pro", "Gemini 2.5 Pro"],
-    ["meta-llama/llama-4-maverick", "Llama 4 Maverick"],
+    ["anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5 · $2/$10"],
+    ["anthropic/claude-haiku-5.5", "Claude Haiku 5.5 · $0.10/$0.50"],
+    ["openai/gpt-6.1-terra", "OpenAI GPT-6.1 Terra · $1/$5"],
+    ["google/gemini-4-hydrogen", "Google Gemini 4 Hydrogen · $1.50/$7.50"],
+    ["x-ai/grok-4.3", "xAI Grok 4.3 · $1.25/$2.50"],
+    ["deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash · $0.30/$1.20"],
+    ["qwen/qwen3.8-flash", "Qwen 3.8 Flash · $0.15/$0.47"],
+    ["moonshotai/kimi-k2.6", "Kimi K2.6 · $0.65/$3.41"],
+    ["z-ai/glm-5.3", "Z.ai GLM 5.3 · $0.08/$3.60"],
+    ["minimax/minimax-m3.1-flash", "MiniMax M3.1 Flash · $0.15/$0.60"],
+    ["mistralai/mistral-large-4-0", "Mistral Large 4 · $0.70/$2.10"],
+    ["meta-llama/llama-4-maverick", "Meta Llama 4 Maverick · $0.35/$1"],
     ["openrouter/auto", "OpenRouter Auto"]
   ];
   const L = {
     en: { title: "AI Coach", key: "OpenRouter API key", model: "Model", send: "Send", clear: "Clear",
           you: "You", coach: "Coach", sys: "Error", need_key: "Enter your OpenRouter API key first.",
           key_note: "Kept only in this browser tab; cleared when you close it.", thinking: "Thinking…",
-          placeholder: "Ask the coach…", cut: "The reply hit the length limit. Ask \"continue\" to get the rest." },
+          placeholder: "Ask the coach…", tos: "This provider refused the request (often a region/VPN restriction on that lab). Pick a model from another lab above and send again.", cut: "The reply hit the length limit. Ask \"continue\" to get the rest." },
     zh: { title: "AI 教练", key: "OpenRouter API 密钥", model: "模型", send: "发送", clear: "清空",
           you: "你", coach: "教练", sys: "错误", need_key: "请先输入 OpenRouter API 密钥。",
           key_note: "只保存在当前标签页，关闭后即清除。", thinking: "思考中…",
-          placeholder: "问问教练…", cut: "回复达到长度上限被截断，发送“继续”获取剩余部分。" }
+          placeholder: "问问教练…", tos: "该模型厂商拒绝了请求（常见原因是该厂商的地区/VPN 限制）。请在上方换一家厂商的模型再发送。", cut: "回复达到长度上限被截断，发送“继续”获取剩余部分。" }
   };
   const CSS = `
 .cc{font-size:13px;color:var(--cc-ink,#1A1A1A)}
@@ -139,7 +147,11 @@
                      "HTTP-Referer": "https://sharkroman.github.io/runwithclaude", "X-Title": "Run With Claude" },
           body: JSON.stringify({ model: modelSel.value, messages: convo, max_tokens: 4000 })
         });
-        if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 300)}`);
+        if (!res.ok) {
+          const body = await res.text();
+          if (res.status === 403 && /Terms Of Service/i.test(body)) throw new Error(`${modelSel.selectedOptions[0].text.split(" · ")[0]}: ${tx("tos")}`);
+          throw new Error(`OpenRouter ${res.status}: ${body.slice(0, 300)}`);
+        }
         const data = await res.json();
         const choice = data?.choices?.[0] || {};
         const reply = choice.message?.content || "";
