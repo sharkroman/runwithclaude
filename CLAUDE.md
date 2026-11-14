@@ -33,6 +33,12 @@ secret `SITE_PASSWORD`, 1-year HttpOnly cookie, `/__logout`) in front of the who
 on Cloudflare Pages (no build, output `/`), make the GitHub repo private, update `SITE` in `tools/report.js`, and
 reduce the cron (private repos have 2,000 free Actions minutes/month).
 
+## Coach chat memory
+`assets/coach-chat.js` saves every conversation automatically (localStorage `rwc_coach_chats`, last 60) and, on the
+Cloudflare site, syncs it through `functions/api/coach-memory.js` to Cloudflare KV (binding `COACH_KV`; 501 without it,
+then browser-only). New chats get earlier conversations (~30k chars, newest first) appended to the system prompt.
+History / New chat buttons in the chat header. Conversations never go into the repo.
+
 ## Instant updates (Strava webhook)
 `tools/strava-webhook-worker.js` runs as a Cloudflare Worker: Strava POSTs each new activity to it and it fires
 `repository_dispatch` `new_strava_run` with the activity id. Strava allows one subscription per API app

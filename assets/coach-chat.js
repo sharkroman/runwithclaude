@@ -3,6 +3,7 @@
 //   const chat = CoachChat.mount(containerEl, { lang: () => "en"|"zh", context: async () => "system prompt",
 //                                               intro: {en, zh}, placeholder: {en, zh} });
 //   chat.setLang();  // re-render labels after a language switch
+// Optional: base (path to site root, for the memory API), label: () => "name shown in History".
 // The key lives only in sessionStorage (this tab). localStorage is readable by every page on
 // sharkroman.github.io, so any key an older version saved there is removed.
 (function () {
@@ -24,11 +25,17 @@
     ["openrouter/auto", "OpenRouter Auto"]
   ];
   const L = {
-    en: { title: "AI Coach", key: "OpenRouter API key", model: "Model", send: "Send", clear: "Clear",
+    en: { title: "AI Coach", key: "OpenRouter API key", model: "Model", send: "Send", new_chat: "New chat", history: "History", delete: "Delete",
+          confirm_delete: "Delete this saved conversation?", no_history: "No saved conversations yet.",
+          saved_local: "Conversations save automatically in this browser and are remembered in new chats.",
+          saved_sync: "Conversations save automatically, sync across your devices, and are remembered in new chats.",
           you: "You", coach: "Coach", sys: "Error", need_key: "Enter your OpenRouter API key first.",
           key_note: "Kept only in this browser tab; cleared when you close it.", thinking: "Thinking…",
           placeholder: "Ask the coach…", tos: "This provider refused the request (often a region/VPN restriction on that lab). Pick a model from another lab above and send again.", cut: "The reply hit the length limit. Ask \"continue\" to get the rest." },
-    zh: { title: "AI 教练", key: "OpenRouter API 密钥", model: "模型", send: "发送", clear: "清空",
+    zh: { title: "AI 教练", key: "OpenRouter API 密钥", model: "模型", send: "发送", new_chat: "新对话", history: "历史", delete: "删除",
+          confirm_delete: "删除这条保存的对话？", no_history: "还没有保存的对话。",
+          saved_local: "对话自动保存在此浏览器，新对话会记得之前聊过的内容。",
+          saved_sync: "对话自动保存并在你的设备间同步，新对话会记得之前聊过的内容。",
           you: "你", coach: "教练", sys: "错误", need_key: "请先输入 OpenRouter API 密钥。",
           key_note: "只保存在当前标签页，关闭后即清除。", thinking: "思考中…",
           placeholder: "问问教练…", tos: "该模型厂商拒绝了请求（常见原因是该厂商的地区/VPN 限制）。请在上方换一家厂商的模型再发送。", cut: "回复达到长度上限被截断，发送“继续”获取剩余部分。" }
@@ -51,6 +58,14 @@
 .cc-row textarea{flex:1;resize:vertical;min-height:38px;max-height:160px;padding:8px 10px;border:1px solid var(--cc-line,#E5E1D8);border-radius:8px;background:var(--cc-bg,#F9F8F6);color:inherit;font:inherit;font-size:13px}
 .cc-row button{padding:8px 14px;border:0;border-radius:8px;background:var(--cc-ink,#1A1A1A);color:#fff;font-weight:600;cursor:pointer;font-size:13px}
 .cc-row button:disabled{opacity:.5;cursor:default}
+.cc-acts{font-size:11px;color:var(--cc-dim,#666);white-space:nowrap}
+.cc-hist{border:1px solid var(--cc-line,#E5E1D8);border-radius:8px;margin-bottom:10px;max-height:220px;overflow-y:auto}
+.cc-hrow{display:flex;border-bottom:1px solid var(--cc-line,#E5E1D8)}.cc-hrow:last-child{border-bottom:0}
+.cc-hopen{flex:1;min-width:0;text-align:left;border:0;background:none;color:inherit;font:inherit;font-size:12px;padding:7px 10px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-hopen:hover{background:var(--cc-soft,#F3F1EC)}
+.cc-hdel{border:0;background:none;color:var(--cc-dim,#666);font-size:15px;padding:0 10px;cursor:pointer}
+.cc-empty{margin:0;padding:8px 10px;font-size:12px;color:var(--cc-dim,#666)}
+.cc-save{margin:6px 0 0;font-size:11px;color:var(--cc-dim,#666)}
 .cc-clear{border:0;background:none;color:var(--cc-dim,#666);font-size:11px;cursor:pointer;text-decoration:underline;padding:0}
 @media(max-width:520px){.cc-cfg{grid-template-columns:1fr}}`;
 
@@ -77,23 +92,60 @@
     return out.join("");
   }
 
+  // ---- Saved conversations ("coach memory") ----
+  // Every conversation is saved automatically: in this browser (localStorage) and, on the
+  // password-protected Cloudflare site, in Cloudflare KV via functions/api/coach-memory.js so it
+  // follows you across devices. Past conversations are added to the system prompt of new ones.
+  const STORE = "rwc_coach_chats", KEEP = 60, MEM_CHARS = 30000;
+  const loadLocal = () => { try { return JSON.parse(localStorage.getItem(STORE) || "[]"); } catch { return []; } };
+  const saveLocal = list => { try { localStorage.setItem(STORE, JSON.stringify(list.slice(0, KEEP))); } catch {} };
+  const byNewest = (a, b) => String(b.updated).localeCompare(String(a.updated));
+  function merge(a, b) {
+    const m = new Map();
+    for (const c of [...a, ...b]) if (c && c.id && (!m.has(c.id) || String(c.updated) > String(m.get(c.id).updated))) m.set(c.id, c);
+    return [...m.values()].filter(c => !c.deleted).sort(byNewest).slice(0, KEEP);
+  }
+  function memoryText(list, excludeId) {
+    const out = [];
+    let used = 0;
+    for (const c of list.filter(c => c.id !== excludeId && c.messages?.length).sort(byNewest)) {
+      const lines = c.messages.map(m => {
+        const t = String(m.content || "").trim();
+        return m.role === "user" ? `Athlete: ${t}` : `Coach: ${t.length > 1500 ? t.slice(0, 1500) + " …" : t}`;
+      });
+      let block = `### ${String(c.started).slice(0, 10)} · ${c.label || c.page}\n${lines.join("\n")}`;
+      if (used + block.length > MEM_CHARS) {
+        // Out of room: keep just what the athlete said in older conversations.
+        block = `### ${String(c.started).slice(0, 10)} · ${c.label || c.page} (athlete's messages only)\n` +
+          c.messages.filter(m => m.role === "user").map(m => `Athlete: ${String(m.content).slice(0, 600)}`).join("\n");
+        if (used + block.length > MEM_CHARS) break;
+      }
+      out.push(block); used += block.length;
+    }
+    return out.length ? `\n\nEarlier conversations with this athlete (newest first). Use them as memory: plans, preferences and corrections the athlete made there still apply unless the data above or the athlete now says otherwise.\n${out.join("\n\n")}` : "";
+  }
+
   function mount(root, opts) {
     injectCss();
     const lang = () => (opts.lang && opts.lang() === "en" ? "en" : "zh");
     const tx = k => L[lang()][k];
+    const api = (opts.base || "") + "api/coach-memory";
+    const page = location.pathname.replace(/index\.html$/, "") + location.search;
     root.classList.add("cc");
     root.innerHTML = `
-      <div class="cc-head"><h2 class="cc-title"></h2><button class="cc-clear" type="button"></button></div>
+      <div class="cc-head"><h2 class="cc-title"></h2><span class="cc-acts"><button class="cc-clear cc-hbtn" type="button"></button> · <button class="cc-clear cc-new" type="button"></button></span></div>
       <p class="cc-intro"></p>
+      <div class="cc-hist" hidden></div>
       <div class="cc-cfg">
         <label><span class="cc-l-key"></span><input type="password" autocomplete="off" placeholder="sk-or-v1-…"></label>
         <label><span class="cc-l-model"></span><select>${MODELS.map(([v, n]) => `<option value="${v}">${n}</option>`).join("")}</select></label>
       </div>
       <div class="cc-log" aria-live="polite"></div>
-      <div class="cc-row"><textarea rows="1"></textarea><button type="button" class="cc-send"></button></div>`;
+      <div class="cc-row"><textarea rows="1"></textarea><button type="button" class="cc-send"></button></div>
+      <p class="cc-save"></p>`;
     const q = s => root.querySelector(s);
     const keyIn = q(".cc-cfg input"), modelSel = q(".cc-cfg select"), log = q(".cc-log"),
-          input = q("textarea"), send = q(".cc-send");
+          input = q("textarea"), send = q(".cc-send"), hist = q(".cc-hist");
 
     try { localStorage.removeItem("openrouter_key"); } catch {}
     try { keyIn.value = sessionStorage.getItem("openrouter_key") || ""; } catch {}
@@ -103,7 +155,38 @@
     modelSel.value = MODELS.some(m => m[0] === savedModel) ? savedModel : MODELS[0][0];
     modelSel.addEventListener("change", () => { try { localStorage.setItem("openrouter_model", modelSel.value); } catch {} });
 
-    let convo = [];
+    let chats = loadLocal(), synced = false;
+    let convo = [], current = null, sysPrompt = null;
+    const newConv = () => ({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), page,
+      label: "", started: new Date().toISOString(), updated: "", messages: [] });
+
+    async function pull() {
+      try {
+        const r = await fetch(api, { cache: "no-store", credentials: "same-origin" });
+        if (!r.ok || !(r.headers.get("Content-Type") || "").includes("json")) return;
+        chats = merge(chats, await r.json()); synced = true; saveLocal(chats);
+      } catch {}
+      status(); renderHist();
+    }
+    async function push(c) {
+      try {
+        const r = await fetch(api, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(c) });
+        if (r.ok && (r.headers.get("Content-Type") || "").includes("json")) synced = true;
+      } catch {}
+      status();
+    }
+    function persist() {
+      if (!current || !convo.length) return;
+      current.messages = convo.slice();
+      current.updated = new Date().toISOString();
+      try { current.label = (opts.label && opts.label()) || document.title; } catch { current.label = document.title; }
+      chats = merge(chats.filter(c => c.id !== current.id), [current]);
+      saveLocal(chats);
+      push(current);
+      renderHist();
+    }
+    function status() { q(".cc-save").textContent = tx(synced ? "saved_sync" : "saved_local"); }
+
     function add(kind, text) {
       const d = document.createElement("div");
       d.className = "cc-msg " + kind;
@@ -112,6 +195,40 @@
       log.scrollTop = log.scrollHeight;
       return d;
     }
+    function open(c) {
+      current = c ? JSON.parse(JSON.stringify(c)) : newConv();
+      convo = current.messages.slice(); sysPrompt = null;
+      log.innerHTML = "";
+      for (const m of convo) add(m.role === "user" ? "you" : "coach", m.content);
+      hist.hidden = true;
+    }
+    function renderHist() {
+      q(".cc-hbtn").textContent = `${tx("history")} (${chats.length})`;
+      if (hist.hidden) return;
+      hist.innerHTML = chats.length ? "" : `<p class="cc-empty">${esc(tx("no_history"))}</p>`;
+      for (const c of chats) {
+        const row = document.createElement("div");
+        row.className = "cc-hrow";
+        const first = (c.messages.find(m => m.role === "user") || {}).content || "";
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "cc-hopen";
+        b.textContent = `${String(c.started).slice(5, 10)} · ${c.label || c.page} — ${first.slice(0, 60)}`;
+        b.addEventListener("click", () => open(c));
+        const x = document.createElement("button");
+        x.type = "button"; x.className = "cc-hdel"; x.textContent = "×"; x.title = tx("delete");
+        x.addEventListener("click", () => {
+          if (!confirm(tx("confirm_delete"))) return;
+          chats = chats.filter(k => k.id !== c.id); saveLocal(chats);
+          push({ id: c.id, deleted: true, updated: new Date().toISOString() });
+          if (current && current.id === c.id) open(null);
+          renderHist();
+        });
+        row.append(b, x); hist.appendChild(row);
+      }
+    }
+    q(".cc-hbtn").addEventListener("click", () => { hist.hidden = !hist.hidden; renderHist(); });
+    q(".cc-new").addEventListener("click", () => open(null));
+
     function setLang() {
       const l = lang();
       q(".cc-title").textContent = (opts.title && opts.title[l]) || tx("title");
@@ -119,10 +236,11 @@
       q(".cc-intro").hidden = !(opts.intro && opts.intro[l]);
       q(".cc-l-key").textContent = tx("key");
       q(".cc-l-model").textContent = tx("model");
-      q(".cc-clear").textContent = tx("clear");
+      q(".cc-new").textContent = tx("new_chat");
       keyIn.title = tx("key_note");
       input.placeholder = (opts.placeholder && opts.placeholder[l]) || tx("placeholder");
       if (!send.disabled) send.textContent = tx("send");
+      status(); renderHist();
     }
     async function go() {
       const text = input.value.trim();
@@ -135,17 +253,18 @@
       send.disabled = true;
       send.textContent = "…";
       const pending = add("coach", tx("thinking"));
+      convo.push({ role: "user", content: text });
       try {
-        if (!convo.length) {
+        if (!sysPrompt) {
           const sys = await opts.context();
-          convo.push({ role: "system", content: sys + `\n\nReply in ${lang() === "en" ? "English" : "Simplified Chinese"} unless the user writes in another language. Be concise and specific to the data. Today is ${new Date().toISOString().slice(0, 10)}. If the data above does not cover something, say so instead of guessing.` });
+          sysPrompt = sys + `\n\nReply in ${lang() === "en" ? "English" : "Simplified Chinese"} unless the user writes in another language. Be concise and specific to the data. Today is ${new Date().toISOString().slice(0, 10)}. If the data above does not cover something, say so instead of guessing.` +
+            memoryText(chats, current.id);
         }
-        convo.push({ role: "user", content: text });
         const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json",
                      "HTTP-Referer": "https://sharkroman.github.io/runwithclaude", "X-Title": "Run With Claude" },
-          body: JSON.stringify({ model: modelSel.value, messages: convo, max_tokens: 4000 })
+          body: JSON.stringify({ model: modelSel.value, messages: [{ role: "system", content: sysPrompt }, ...convo], max_tokens: 4000 })
         });
         if (!res.ok) {
           const body = await res.text();
@@ -158,10 +277,12 @@
         convo.push({ role: "assistant", content: reply });
         pending.innerHTML = md(reply || "—");
         if (choice.finish_reason === "length") add("sys", tx("cut"));
+        persist();
       } catch (err) {
-        convo = convo.filter((m, i) => !(i === convo.length - 1 && m.role === "user"));
+        if (convo.length && convo[convo.length - 1].role === "user") convo.pop();
         pending.remove();
         add("sys", err.message);
+        input.value = input.value || text;   // keep the question so it can be resent
       } finally {
         send.disabled = false;
         send.textContent = tx("send");
@@ -169,9 +290,13 @@
     }
     send.addEventListener("click", go);
     input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); go(); } });
-    q(".cc-clear").addEventListener("click", () => { convo = []; log.innerHTML = ""; });
+
+    // Reopen the latest conversation from this page if it is less than a day old; else start fresh.
+    const last = chats.find(c => c.page === page);
+    open(last && Date.now() - new Date(last.updated) < 864e5 ? last : null);
     setLang();
-    return { setLang, reset: () => { convo = []; } };
+    pull();
+    return { setLang, reset: () => open(null) };
   }
 
   // Compact summaries of the most recent runs (for race and training questions).

@@ -154,6 +154,7 @@ window.planner={data:D,stages,shots,selectAt,selectShot,selectStage,setLanguage,
  const lang=()=>P.language;
  const chat=CoachChat.mount(document.getElementById('raceChat'),{
   lang, title:{en:'AI Coach',zh:'AI 教练'},
+  base:'../../', label:()=>'Catalina 10K roadbook',
   placeholder:{en:'e.g. How should I run the 4–7.7 km climb?',zh:'例如：4–7.7 公里的爬坡该怎么跑？'},
   context: async()=>{
    const stages=P.stages.map(s=>`- ${(s.start/1000).toFixed(1)}–${(s.end/1000).toFixed(1)} km "${s.name}": pace ${s.pace}/km, HR ${s.hr}, +${Math.round(s.stats.gain)}/−${Math.round(s.stats.loss)} m. ${s.sub} ${s.advice}`).join('\n');

@@ -819,6 +819,8 @@ function renderMeta(){
 // AI coach chat (shared module, assets/coach-chat.js).
 const chat = CoachChat.mount(document.getElementById("chat-card"), {
   lang: () => LANG,
+  base: "",
+  label: () => `Run ${(D.meta.date || "").slice(0, 10)} ${D.meta.name || ""}`.trim(),
   intro: { en: "Ask about this run: pacing, heart rate, what to change next time.",
            zh: "就这次跑步提问：配速、心率、下次该怎么调整。" },
   placeholder: { en: "Ask about this run…", zh: "问问这次跑步…" },
