@@ -22,6 +22,21 @@ GitHub Actions and committed to `runs/`.
   workflow run; the browser chat (`assets/coach-chat.js` `trainingLog`) sends it as the athlete's full history.
 - `tools/report.js <id>`: prints a Markdown coach report for one saved run
   (dispatch the workflow with `report:<id>` to resend one).
+- `tools/video/runhud.py`: burns the running dashboard HUD (route map, distance/elevation/time, pace dial, terrain
+  climb/descent + grade graph, HR vs roadbook target, elevation profile, GitHub link) onto run footage, synced from
+  `runs/<id>.json` streams. `--offset` = race elapsed seconds at the clip's first frame (find it from a landmark).
+  Per-race presets live in `races/<slug>/video.json` (run, title, HR `targets` by km, clips with offset/crop):
+  `python3 tools/video/runhud.py --config races/<slug>/video.json`. Footage lives in `~/Movies/runwithclaude/<YYYY-MM-DD>_<Race>/`
+  (`raw/`, `full/` HUD renders, `30s/`, `90s/`, `posts/`); clip `file`/`out` paths in video.json are relative to it (raw files not
+  found there fall back to `~/Downloads/Airdrop`, where Taildrops land). Phones stream that folder over Tailscale. Needs pillow, numpy, ffmpeg; macOS fonts.
+- `tools/video/runedit.py`: cuts 30s / 90s highlight edits from a full runhud render: picks moments from the run data
+  (start, steepest climb, summit, fastest descent, stairs, end) plus fillers, slides each to the least-sky stretch nearby,
+  cuts on the music's beats (own beat tracker), v5 captions under the HUD, music + quiet live sound, loudnorm -15:
+  `python3 tools/video/runedit.py --hud full/<x>_hud.mp4 --run <run.json> --offset <s> --music <song> --length 30|90 --out ...`
+  (`--captions` JSON overrides the automatic captions by moment name).
+- `tools/video/runfun.py plan.json out.mp4`: playful hand-planned edit from the RAW clip with the live HUD re-drawn on top:
+  per-shot `fx` cut / zoom (punch-in) / lapse (fast-forward + xN badge) / snap (shutter flash -> polaroid freeze, `crop_y`),
+  beat-cut, v5 captions. Plan format in the docstring; scan the clip at 4 s intervals first to find landmarks.
 - `.github/workflows/process-run.yml`: runs `backfill.js` every 30 min (`schedule`), on `repository_dispatch`
   (`new_strava_run`, payload `activity_id`) or a manual `workflow_dispatch`, commits `runs/`,
   opens a "Coach report" GitHub issue for each newly saved run (`backfill.js` lists them in `.new-runs`),
@@ -43,6 +58,8 @@ History / New chat buttons in the chat header. Conversations never go into the r
 `tools/strava-webhook-worker.js` runs as a Cloudflare Worker: Strava POSTs each new activity to it and it fires
 `repository_dispatch` `new_strava_run` with the activity id. Strava allows one subscription per API app
 (`GET/POST/DELETE https://www.strava.com/api/v3/push_subscriptions`). The 30-min schedule stays as a backstop.
+Deployed as Worker `strava-relay` (callback `https://strava-relay.<subdomain>.workers.dev/<PATH_SECRET>`). Manage the subscription with
+`node tools/strava-webhook.js status | create <callback_url> <verify_token> | delete` (needs Strava client id/secret in `.env`).
 
 ## Re-authorising Strava (activity list returns 401)
 The refresh token needs `activity:read_all`. Open
