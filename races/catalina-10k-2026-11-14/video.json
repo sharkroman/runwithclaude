@@ -1,0 +1,10 @@
+{
+  "run": "runs/20987659539.json",
+  "title": "Catalina 10K",
+  "targets": "0-1:140-150,1-3:145-155,3-4:140-150,4-7.7:145-155,7.7-:145-155",
+  "clips": [
+    {"file": "2026-11-14_Catalina10K/raw/20261114_102750_592.mp4", "offset": -17, "zoom": 1.4, "yfrac": 0.91, "out": "2026-11-14_Catalina10K/full/Catalina10K_full_A_start-5km.mp4", "note": "start -> 5.4 km; offset from the Casino landmark"},
+    {"file": "2026-11-14_Catalina10K/raw/20261114_101929_713.mp4", "offset": 2030, "zoom": 1.33, "yfrac": 1, "out": "2026-11-14_Catalina10K/full/Catalina10K_full_B_hour-trail.mp4", "note": "Hour Trail; offset estimated"},
+    {"file": "2026-11-14_Catalina10K/raw/VID_20261114_091404_618.mp4", "offset": 3231, "zoom": 1.33, "yfrac": 0.95, "out": "2026-11-14_Catalina10K/full/Catalina10K_full_C_descent-finish.mp4", "note": "descent -> finish arch"}
+  ]
+}
