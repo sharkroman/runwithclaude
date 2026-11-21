@@ -12,6 +12,8 @@ GitHub Actions and committed to `runs/`.
   dashboard palette/fonts and the shared `localStorage` key `lang`; links back with `../../`.
   The dashboard's `RACES` list drives the race card (shown until 7 days after race day).
   Catalina is an archived MapMyRun route, not the confirmed course: keep that disclaimer.
+  `tools/roadbook_data.py <gpx> <out.json> --name ...` builds the routeData JSON (route/profile/DEM splits, Terrarium
+  hillshade + contours) for a new roadbook; `goleta-courtyard-8k/` is a training-route roadbook built that way.
 - `tools/backfill.js`: fetches Strava activities and streams, builds run JSON, and generates
   waypoints through the first configured provider: Amazon Bedrock (`BEDROCK_API_KEY`, Anthropic Messages format), the Anthropic API (`ANTHROPIC_API_KEY`), then OpenRouter (falls back to `emergencyFallbackWaypoints` with no key or on errors).
 - `tools/enrich.js`: adds `place{en,zh,country}` (OSM Nominatim reverse geocode of the start point, 1 req/s) and

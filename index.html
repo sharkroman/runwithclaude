@@ -261,6 +261,9 @@ const I18N = {
 
 // Race roadbooks under races/<slug>/. The card shows from now until a week after race day.
 const RACES = [
+  { slug: "goleta-courtyard-8k", date: "2026-11-21",
+    name: { en: "Courtyard 8K", zh: "Courtyard 8K" },
+    place: { en: "Goleta, Santa Barbara · Nov 21", zh: "圣巴巴拉 Goleta · 11月21日" } },
   { slug: "catalina-10k-2026-11-14", date: "2026-11-14",
     name: { en: "Catalina 10K", zh: "Catalina 10K" },
     place: { en: "Avalon, Catalina Island · Nov 14", zh: "加州 Catalina 岛 Avalon · 11月14日" } }
@@ -271,7 +274,7 @@ function renderRaceCard() {
   const race = RACES
     .map(r => ({ ...r, days: Math.round((new Date(r.date + "T00:00:00") - today) / 86400000) }))
     .filter(r => r.days >= -7)
-    .sort((a, b) => a.days - b.days)[0];
+    .sort((a, b) => (a.days < 0) - (b.days < 0) || Math.abs(a.days) - Math.abs(b.days))[0]; // upcoming first
   if (!race) { card.hidden = true; return; }
   card.href = `races/${race.slug}/`;
   const count = race.days > 0
