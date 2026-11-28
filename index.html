@@ -150,6 +150,7 @@
       <h1><span class="quote">“</span><span id="title"></span><span class="quote">”</span></h1>
       <select id="run-selector" style="margin-top: 10px; width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--txt); font-family: inherit; font-size: 13px; cursor: pointer;"></select>
       <div class="chips" id="chips"></div>
+      <nav id="roadbooks" aria-label="Roadbooks" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;font-size:12px"></nav>
     </header>
 
     <div class="col col-main">
@@ -231,6 +232,7 @@ const I18N = {
     select_run: "-- Select a previous run --",
     race_next: "Next race", race_done: "Race roadbook", race_days: "days", race_today: "Race day",
     race_open: "Course, pacing & photo stops →",
+    roadbooks: "Roadbooks",
     key_note: "Kept only in this browser tab; cleared when you close it."
   },
   zh: {
@@ -255,12 +257,16 @@ const I18N = {
     select_run: "-- 选择历史记录 --",
     race_next: "下一场比赛", race_done: "赛事路书", race_days: "天", race_today: "比赛日",
     race_open: "路线、配速与摄影点 →",
+    roadbooks: "路书",
     key_note: "只保存在当前标签页，关闭后即清除。"
   }
 };
 
 // Race roadbooks under races/<slug>/. The card shows from now until a week after race day.
 const RACES = [
+  { slug: "mogan-20k-2027", date: "2027-04-10", // date TBC: 2026 edition was Apr 10–12
+    name: { en: "Mogan 20K · UTMB", zh: "莫干山 20K · UTMB" },
+    place: { en: "Deqing, Zhejiang · spring 2027 (date TBC)", zh: "浙江德清 · 2027 春季（日期待定）" } },
   { slug: "goleta-courtyard-8k", date: "2026-11-21",
     name: { en: "Courtyard 8K", zh: "Courtyard 8K" },
     place: { en: "Goleta, Santa Barbara · Nov 21", zh: "圣巴巴拉 Goleta · 11月21日" } },
@@ -268,6 +274,13 @@ const RACES = [
     name: { en: "Catalina 10K", zh: "Catalina 10K" },
     place: { en: "Avalon, Catalina Island · Nov 14", zh: "加州 Catalina 岛 Avalon · 11月14日" } }
 ];
+function renderRoadbooks() {
+  const nav = document.getElementById("roadbooks"); if (!nav) return;
+  const link = "padding:4px 10px;border:1px solid var(--line);border-radius:999px;color:var(--txt);text-decoration:none;background:var(--panel2)";
+  nav.innerHTML = `<span style="color:var(--dim);letter-spacing:1px;text-transform:uppercase;font-size:10.5px">${t("roadbooks")}</span>` +
+    [...RACES].sort((a, b) => b.date.localeCompare(a.date))
+      .map(r => `<a href="races/${r.slug}/" style="${link}">${r.name[LANG]}</a>`).join("");
+}
 function renderRaceCard() {
   const card = document.getElementById("race-card");
   const today = new Date(); today.setHours(0,0,0,0);
@@ -296,7 +309,7 @@ function setLang(l) {
   document.getElementById("btn-zh").className = "lang-btn" + (l==="zh"?" active":"");
   document.querySelectorAll("[data-i18n]").forEach(el => { el.innerHTML = t(el.getAttribute("data-i18n")); });
   document.querySelectorAll("[data-placeholder-i18n]").forEach(el => { el.placeholder = t(el.getAttribute("data-placeholder-i18n")); });
-  renderRaceCard();
+  renderRaceCard(); renderRoadbooks();
 
   if (window.runsIndex) populateRunSelector(window.runsIndex);
   if(D) { renderMeta(); renderAnnotations(); renderZones(); }
