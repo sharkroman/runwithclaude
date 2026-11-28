@@ -1,0 +1,8 @@
+{
+  "run": "runs/21074588168.json",
+  "title": "Goleta Run",
+  "targets": "0-:140-150",
+  "clips": [
+    {"file": "2026-11-21_Goleta/raw/20261121_104122_429.mp4", "offset": 39, "zoom": 1.3, "yfrac": 1, "out": "2026-11-21_Goleta/full/Goleta_full_hud.mp4", "note": "start -> 7.2 km gully; offset from the 0.1 km crosswalk stop (video 44 s = race 82 s restart)"}
+  ]
+}

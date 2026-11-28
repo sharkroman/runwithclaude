@@ -109,7 +109,7 @@ def caption_png(c, path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--hud', required=True); ap.add_argument('--run', required=True); ap.add_argument('--offset', type=float, required=True)
-    ap.add_argument('--music', required=True); ap.add_argument('--music-start', type=float, default=None, help='seconds into the song (default: first strong bar after 10%)')
+    ap.add_argument('--music', required=True); ap.add_argument('--music-start', type=float, default=None, help='seconds into the song (default: first strong bar after 10%%)')
     ap.add_argument('--length', type=int, default=30); ap.add_argument('--out', required=True)
     ap.add_argument('--title'); ap.add_argument('--place', default=''); ap.add_argument('--captions'); ap.add_argument('--amb', type=float, default=0.18)
     a = ap.parse_args()
