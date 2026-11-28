@@ -10,7 +10,7 @@ GitHub Actions and committed to `runs/`.
 - `races/<slug>/`: race roadbooks (`index.html` single file with embedded `routeData` JSON incl. a base64
   terrain image, plus the course `.gpx`). Never print the whole file; the data line is >1 MB. Uses the
   dashboard palette/fonts and the shared `localStorage` key `lang`; links back with `../../`.
-  The dashboard's `RACES` list drives the race card (shown until 7 days after race day).
+  `assets/roadbooks.js` (`RWC_ROADBOOKS`) is the single roadbook list: it drives the dashboard race card (shown until 7 days after race day), the dashboard roadbook dropdown, and the switcher in each roadbook's topbar (each page loads it and calls `RWC_mountRoadbookSwitcher`).
   Catalina is an archived MapMyRun route, not the confirmed course: keep that disclaimer.
   `tools/roadbook_data.py <gpx> <out.json> --name ...` builds the routeData JSON (route/profile/DEM splits, Terrarium
   hillshade + contours) for a new roadbook; `goleta-courtyard-8k/` is a training-route roadbook built that way.
