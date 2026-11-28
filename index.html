@@ -150,7 +150,7 @@
       <h1><span class="quote">“</span><span id="title"></span><span class="quote">”</span></h1>
       <select id="run-selector" style="margin-top: 10px; width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--txt); font-family: inherit; font-size: 13px; cursor: pointer;"></select>
       <div class="chips" id="chips"></div>
-      <nav id="roadbooks" aria-label="Roadbooks" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;font-size:12px"></nav>
+      <select id="roadbooks" aria-label="Roadbooks" style="margin-top: 10px; width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--txt); font-family: inherit; font-size: 13px; cursor: pointer;"></select>
     </header>
 
     <div class="col col-main">
@@ -275,11 +275,11 @@ const RACES = [
     place: { en: "Avalon, Catalina Island · Nov 14", zh: "加州 Catalina 岛 Avalon · 11月14日" } }
 ];
 function renderRoadbooks() {
-  const nav = document.getElementById("roadbooks"); if (!nav) return;
-  const link = "padding:4px 10px;border:1px solid var(--line);border-radius:999px;color:var(--txt);text-decoration:none;background:var(--panel2)";
-  nav.innerHTML = `<span style="color:var(--dim);letter-spacing:1px;text-transform:uppercase;font-size:10.5px">${t("roadbooks")}</span>` +
+  const sel = document.getElementById("roadbooks"); if (!sel) return;
+  sel.innerHTML = `<option value="">📖 ${t("roadbooks")} (${RACES.length})</option>` +
     [...RACES].sort((a, b) => b.date.localeCompare(a.date))
-      .map(r => `<a href="races/${r.slug}/" style="${link}">${r.name[LANG]}</a>`).join("");
+      .map(r => `<option value="races/${r.slug}/">${r.date}${r.slug === "mogan-20k-2027" ? " (TBC)" : ""} · ${r.name[LANG]} · ${r.place[LANG].split(" · ")[0]}</option>`).join("");
+  sel.onchange = () => { if (sel.value) location.href = sel.value; };
 }
 function renderRaceCard() {
   const card = document.getElementById("race-card");
