@@ -147,10 +147,12 @@
   <div id="status" data-i18n="loading">Loading run…</div>
   <div id="content" style="display:none">
     <header>
-      <h1><span class="quote">“</span><span id="title"></span><span class="quote">”</span></h1>
-      <select id="run-selector" style="margin-top: 10px; width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--txt); font-family: inherit; font-size: 13px; cursor: pointer;"></select>
+      <nav class="sitenav" aria-label="Site navigation" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:10px">
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);min-width:0"><span data-i18n="nav_runs">Run reviews</span><select id="run-selector" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-family:inherit;font-size:13px;cursor:pointer"></select></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);min-width:0"><span data-i18n="roadbooks">Roadbooks</span><select id="roadbooks" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-family:inherit;font-size:13px;cursor:pointer"></select></label>
+      </nav>
+      <h1 style="margin-top:14px"><span class="quote">“</span><span id="title"></span><span class="quote">”</span></h1>
       <div class="chips" id="chips"></div>
-      <select id="roadbooks" aria-label="Roadbooks" style="margin-top: 10px; width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--txt); font-family: inherit; font-size: 13px; cursor: pointer;"></select>
     </header>
 
     <div class="col col-main">
@@ -233,6 +235,8 @@ const I18N = {
     race_next: "Next race", race_done: "Race roadbook", race_days: "days", race_today: "Race day",
     race_open: "Course, pacing & photo stops →",
     roadbooks: "Roadbooks",
+    nav_runs: "Run reviews",
+    rb_pick: "Choose a roadbook",
     key_note: "Kept only in this browser tab; cleared when you close it."
   },
   zh: {
@@ -258,6 +262,8 @@ const I18N = {
     race_next: "下一场比赛", race_done: "赛事路书", race_days: "天", race_today: "比赛日",
     race_open: "路线、配速与摄影点 →",
     roadbooks: "路书",
+    nav_runs: "跑步复盘",
+    rb_pick: "选择路书",
     key_note: "只保存在当前标签页，关闭后即清除。"
   }
 };
@@ -276,7 +282,7 @@ const RACES = [
 ];
 function renderRoadbooks() {
   const sel = document.getElementById("roadbooks"); if (!sel) return;
-  sel.innerHTML = `<option value="">📖 ${t("roadbooks")} (${RACES.length})</option>` +
+  sel.innerHTML = `<option value="">${t("rb_pick")} (${RACES.length})</option>` +
     [...RACES].sort((a, b) => b.date.localeCompare(a.date))
       .map(r => `<option value="races/${r.slug}/">${r.date}${r.slug === "mogan-20k-2027" ? " (TBC)" : ""} · ${r.name[LANG]} · ${r.place[LANG].split(" · ")[0]}</option>`).join("");
   sel.onchange = () => { if (sel.value) location.href = sel.value; };
